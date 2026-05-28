@@ -6,7 +6,11 @@
     "moduleResolution": "Bundler",
     "strict": true,
     "skipLibCheck": true,
-    "types": ["chrome"]
+    "types": ["chrome"],
+    "baseUrl": ".",
+    "paths": {
+      "upspa-js": ["../upspa-js/dist/index.d.ts"]
+    }
   },
   "include": ["src/**/*.ts"]
 }

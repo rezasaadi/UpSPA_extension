@@ -5,12 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>UpSPA</title>
     <style>
-      body { font-family: system-ui, sans-serif; margin: 12px; width: 320px; }
+      body { font-family: system-ui, sans-serif; margin: 12px; width: 340px; }
       code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
       .row { margin: 8px 0; }
       button { width: 100%; padding: 8px; }
       .small { font-size: 12px; opacity: 0.8; }
       .err { color: #b00020; }
+      .screenshot {
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        object-fit: cover;
+        border: 1px solid #d0d0d0;
+        background: #f3f3f3;
+        display: block;
+      }
     </style>
   </head>
   <body>
@@ -18,6 +26,7 @@
 
     <div class="row small" id="site"></div>
     <div class="row" id="status"></div>
+    <img id="screenshot" class="screenshot" alt="Current tab screenshot" />
     <div class="row err" id="error"></div>
 
     <div class="row">

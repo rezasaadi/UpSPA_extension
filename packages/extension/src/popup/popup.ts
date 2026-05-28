@@ -1,13 +1,10 @@
-import type { BgResponse } from '../shared/messages';
-
-async function bg(msg: any): Promise<BgResponse> {
-  return (await chrome.runtime.sendMessage(msg)) as BgResponse;
-}
+import { getConfig } from '../shared/config';
 
 async function main() {
   const siteEl = document.getElementById('site')!;
   const statusEl = document.getElementById('status')!;
   const errEl = document.getElementById('error')!;
+  const screenshotEl = document.getElementById('screenshot') as HTMLImageElement;
   const btn = document.getElementById('openOptions')! as HTMLButtonElement;
 
   btn.onclick = () => chrome.runtime.openOptionsPage();
@@ -16,13 +13,20 @@ async function main() {
   const origin = tab?.url ? new URL(tab.url).origin : '(no active tab)';
   siteEl.textContent = `Site: ${origin}`;
 
-  const res = await bg({ type: 'UPSRA_GET_CONFIG' });
-  if (!res.ok) {
-    errEl.textContent = res.error;
-    return;
+  if (tab?.windowId !== undefined) {
+    try {
+      screenshotEl.src = await chrome.tabs.captureVisibleTab(tab.windowId, {
+        format: 'png',
+      });
+    } catch (e) {
+      screenshotEl.style.display = 'none';
+      errEl.textContent = `Screenshot unavailable: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  } else {
+    screenshotEl.style.display = 'none';
   }
 
-  const cfg = (res as any).cfg as { enabled: boolean; uid: string; threshold: number; sps: any[] };
+  const cfg = await getConfig();
   if (!cfg?.uid) {
     statusEl.innerHTML = `<div><b>Not configured.</b></div><div class="small">Open Options and run Setup.</div>`;
     return;
