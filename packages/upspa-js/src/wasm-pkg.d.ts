@@ -34,6 +34,10 @@ declare module '../wasm-pkg/upspa_wasm.js' {
     nsp: number,
     tsp: number,
     new_password: string,
-    timestamp: number,
+    timestamp: bigint,
   ): unknown;
+}
+declare module '*.wasm?url' {
+  const url: string;
+  export default url;
 }
