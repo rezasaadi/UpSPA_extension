@@ -1,55 +1,55 @@
 package api
 
 import (
-	"encoding/base64"
+	"errors"
 	"net/http"
 
-	"upspa/internal/model")
+	spcrypto "upspa/internal/crypto"
+	"upspa/internal/model"
+)
 
-// EvalToprf handles POST /v1/toprf/eval
 func (h *Handler) EvalToprf(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method Not Allowed", nil)
-		return
-	}
-
 	var req model.ToprfEvalRequest
 	if err := ReadJSON(w, r, &req); err != nil {
-		WriteError(w, http.StatusBadRequest, "invalid_json", "Bad Request: Invalid JSON body", nil)
+		WriteError(w, http.StatusBadRequest, "invalid_json", "invalid JSON body", nil)
 		return
 	}
 
-	// Validate formats and extract fixed lengths
-	if err := validateBase64URLNoPad(req.UIDB64, 32); err != nil {
-		WriteError(w, http.StatusBadRequest, "invalid_uid", "Bad Request: Invalid uid format or length", nil)
-		return
-	}
-	if err := validateBase64URLNoPad(req.BlindedB64, 32); err != nil {
-		WriteError(w, http.StatusBadRequest, "invalid_blinded", "Bad Request: Invalid blinded point format", nil)
-		return
-	}
-
-	// Fetch the k_i for this user from the Store
-	kIB64, err := h.store.GetKi(r.Context(), req.UIDB64)
+	_, uidCanon, err := decodeCanonicalNonEmpty(req.UIDB64)
 	if err != nil {
-		if err == ErrNotFound {
-			WriteError(w, http.StatusNotFound, "not_found", "User not found", nil)
+		badField(w, "invalid_uid", "uid_b64")
+		return
+	}
+	blindedRaw, _, err := decodeFixed(req.BlindedB64, spcrypto.LenRistretto)
+	if err != nil {
+		badField(w, "invalid_blinded", "blinded_b64")
+		return
+	}
+
+	kIB64, found, err := h.store.GetKi(r.Context(), uidCanon)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+	if !found {
+		WriteError(w, http.StatusNotFound, "not_found", "user setup not found", nil)
+		return
+	}
+	kIRaw, _, err := decodeFixed(kIB64, spcrypto.LenScalarKi)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "stored_invalid_k_i", "stored scalar is invalid", nil)
+		return
+	}
+
+	y, err := spcrypto.RistrettoScalarMult(kIRaw, blindedRaw)
+	if err != nil {
+		if errors.Is(err, spcrypto.ErrInvalidPoint) || errors.Is(err, spcrypto.ErrInvalidScalar) || errors.Is(err, spcrypto.ErrWrongLength) {
+			WriteError(w, http.StatusBadRequest, "invalid_toprf_input", "invalid TOPRF input", nil)
 			return
 		}
-		WriteError(w, http.StatusInternalServerError, "internal_error", "Internal Server Error", nil)
+		WriteError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 
-	// (Mock) Cryptographic Evaluation
-	_ = kIB64 // mock usage
-	
-	// Create a dummy 32-byte point for tests
-	yB64 := base64.RawURLEncoding.EncodeToString([]byte("mock_y_val_must_be_32_bytes_long"))
-
-	resp := model.ToprfEvalResponse{
-		SpID: 1, // Will be injected or fetched from config later
-		YB64: yB64,
-	}
-
-	WriteJSON(w, http.StatusOK, resp)
+	_ = WriteJSON(w, http.StatusOK, model.ToprfEvalResponse{SpID: h.spID, YB64: spcrypto.EncodeB64(y)})
 }
