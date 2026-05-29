@@ -8,6 +8,10 @@
     "build:wasm": "bash ./scripts/build_wasm.sh",
     "build:js": "npm -w upspa-js run build",
     "build:ext": "npm -w upspa-extension run build",
-    "test:js": "npm -w upspa-js run test"
+    "test:js": "npm -w upspa-js run test",
+    "build:demo": "npm run build:wasm && npm run build:js && npm run build:ext"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.42"
   }
 }
