@@ -1106,8 +1106,6 @@ Examples:
 intern/efe
 intern/sina
 intern/emirhan
-intern/sevval
-intern/feyza
 ```
 
 Daily workflow:
