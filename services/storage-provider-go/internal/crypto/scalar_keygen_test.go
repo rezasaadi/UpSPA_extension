@@ -6,7 +6,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/rezasaadi/UpSPA_FPB/services/storage-provider-go"
+	"upspa/internal/crypto"
 )
 
 func TestGenerateScalarKi_Length(t *testing.T) {
@@ -20,9 +20,6 @@ func TestGenerateScalarKi_Length(t *testing.T) {
 }
 
 func TestGenerateScalarKi_IsCanonical(t *testing.T) {
-	// Every value produced by GenerateScalarKi must be accepted by
-	// RistrettoScalarMult (i.e. pass SetCanonicalBytes).
-	// Run many iterations to catch any bias or edge cases.
 	basePoint := validRistrettoPoint()
 	for i := 0; i < 100; i++ {
 		ki, err := crypto.GenerateScalarKi()
@@ -37,8 +34,6 @@ func TestGenerateScalarKi_IsCanonical(t *testing.T) {
 }
 
 func TestGenerateScalarKi_Unique(t *testing.T) {
-	// Two independently generated scalars should (with overwhelming probability)
-	// be distinct.
 	ki1, err1 := crypto.GenerateScalarKi()
 	ki2, err2 := crypto.GenerateScalarKi()
 	if err1 != nil || err2 != nil {
@@ -50,8 +45,6 @@ func TestGenerateScalarKi_Unique(t *testing.T) {
 }
 
 func TestGenerateScalarKi_NotAllZeros(t *testing.T) {
-	// The zero scalar would make TOPRF trivially insecure (0 * P = identity for all P).
-	// Verify the generator never produces it.
 	for i := 0; i < 20; i++ {
 		ki, _ := crypto.GenerateScalarKi()
 		if bytes.Equal(ki, make([]byte, 32)) {

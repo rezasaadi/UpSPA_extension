@@ -13,7 +13,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/rezasaadi/UpSPA_FPB/services/storage-provider-go"
+	"upspa/internal/crypto"
 )
 
 func TestCanonicalB64_RoundTrip(t *testing.T) {
