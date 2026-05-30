@@ -1,0 +1,93 @@
+PS C:\Users\efebe\Downloads> cd $HOME\Downloads
+PS C:\Users\efebe\Downloads> Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+PS C:\Users\efebe\Downloads> .\upspa-setup-and-run.ps1 -SkipInstall -UseGnuToolchain -UsePrebuiltDist "C:\Users\efebe\Downloads\upspa-extension-dist"
+SCRIPT VERSION: 2026-05-30m (headless protocol driver auto-run after servers; -RunDriver/-SkipDriver; prebuilt dist; ASCII bars + diagnostics; GNU toolchain)
+Install dir : C:\Users\efebe\upspa
+Log file    : C:\Users\efebe\upspa-demo-logs\run-20260530-210200.log
+
+
+===== STEP 0/9 [--------------------]   0% : Diagnostics - environment snapshot (catch problems before they bite) =====
+  [DIAG] date            : 05/30/2026 21:02:00
+  [DIAG] OS              : Microsoft Windows 11 Pro Education build 26200
+  [DIAG] PowerShell      : 5.1.26100.8457 Desktop
+  [DIAG] arch            : AMD64
+  [DIAG] elevated        : no (good)
+  [DIAG] free disk       : 688,1 GB on drive C:\
+  [DIAG] git             : (not found)
+  [DIAG] go              : go version go1.26.2 windows/amd64
+  [DIAG] node            : v24.16.0
+  [DIAG] npm             : 11.13.0
+  [DIAG] cargo           : cargo 1.96.0 (30a34c682 2026-05-25)
+  [DIAG] rustup          : rustup 1.29.0 (28d1352db 2026-03-05)
+  [DIAG] wasm-pack       : wasm-pack 0.15.0
+  [DIAG] conda           : (not found)
+  [DIAG] VC++ linker     : present
+  [DIAG] Windows SDK     : MISSING (MSVC build needs it; or use -UseGnuToolchain)
+  [DIAG] install dir     : C:\Users\efebe\upspa (exists)
+  [DIAG] port 5432       : free
+  [DIAG] port 8081       : free
+  [DIAG] port 8082       : free
+  [DIAG] port 8083       : free
+  [DIAG] port 3000       : free
+  [DIAG] build mode      : GNU Rust toolchain (no MSVC / Windows SDK needed)
+
+===== STEP 1/9 [--------------------]   0% : Skipping install (-SkipInstall) =====
+
+===== STEP 2/9 [##------------------]  11% : PostgreSQL: set up the demo databases =====
+  setting up a self-contained PostgreSQL via conda-forge (no EnterpriseDB, no Docker)...
+  using conda at C:\Users\efebe\miniconda3\Scripts\conda.exe
+  starting PostgreSQL on port 5432...
+  waiting for PostgreSQL on :5432 [--------------------]   0% (0s/60s)  ...  [####################] 100% (60s/60s)   waiting for PostgreSQL on :5432 [####################] 100% (TIMEOUT after 60s)
+  [WARN] PostgreSQL did not become ready. Last lines of the server log:
+    2026-05-30 20:24:58.486 +03 [3668] ERROR:  database "upspa3" already exists
+    2026-05-30 20:24:58.486 +03 [3668] STATEMENT:  CREATE DATABASE upspa3;
+    2026-05-30 20:25:28.589 +03 [24352] FATAL:  role "efebe" does not exist
+    2026-05-30 20:25:28.878 +03 [18636] FATAL:  role "efebe" does not exist
+    2026-05-30 20:25:29.039 +03 [6056] ERROR:  database "upspa1" already exists
+    2026-05-30 20:25:29.039 +03 [6056] STATEMENT:  CREATE DATABASE upspa1;
+    2026-05-30 20:25:29.260 +03 [17596] ERROR:  database "upspa2" already exists
+    2026-05-30 20:25:29.260 +03 [17596] STATEMENT:  CREATE DATABASE upspa2;
+    2026-05-30 20:25:29.491 +03 [25900] ERROR:  database "upspa3" already exists
+    2026-05-30 20:25:29.491 +03 [25900] STATEMENT:  CREATE DATABASE upspa3;
+    2026-05-30 20:28:07.891 +03 [10124] LOG:  checkpoint starting: time
+    2026-05-30 20:28:18.759 +03 [10124] LOG:  checkpoint complete: wrote 99 buffers (0.6%), wrote 1 SLRU buffers; ... lsn=0/261B018, redo lsn=0/261AF88
+    2026-05-30 21:00:51.803 +03 [23856] FATAL:  role "efebe" does not exist
+    2026-05-30 21:00:51.903 +03 [17664] FATAL:  role "efebe" does not exist
+    2026-05-30 21:00:51.992 +03 [14600] ERROR:  database "upspa1" already exists
+    2026-05-30 21:00:51.992 +03 [14600] STATEMENT:  CREATE DATABASE upspa1;
+    2026-05-30 21:00:52.107 +03 [17040] ERROR:  database "upspa2" already exists
+    2026-05-30 21:00:52.107 +03 [17040] STATEMENT:  CREATE DATABASE upspa2;
+    2026-05-30 21:00:52.287 +03 [9468] ERROR:  database "upspa3" already exists
+    2026-05-30 21:00:52.287 +03 [9468] STATEMENT:  CREATE DATABASE upspa3;
+    2026-05-30 21:01:09.745 +03 [16312] LOG:  background worker "logical replication launcher" (PID 26232) was terminated by exception 0xC000013A
+    2026-05-30 21:01:09.745 +03 [16312] HINT:  See C include file "ntstatus.h" for a description of the hexadecimal value.
+    2026-05-30 21:01:09.745 +03 [16312] LOG:  terminating any other active server processes
+    2026-05-30 21:01:09.780 +03 [16312] LOG:  received fast shutdown request
+    ^C
+  [WARN] pg_ctl start output:
+    pg_ctl.exe : pg_ctl: another server might be running; trying to start server anyway
+    At C:\Users\efebe\Downloads\upspa-setup-and-run.ps1:213 char:9
+    +         & $pgctl -D $pgData -l $pgLog -o "-p 5432" -w start 2>&1 | Ou ...
+        + CategoryInfo          : NotSpecified: (pg_ctl: another...t server anyway:String) [], RemoteException
+        + FullyQualifiedErrorId : NativeCommandError
+    waiting for server to start.... done
+    server started
+  [STOP] PostgreSQL not ready. Send these files: C:\Users\efebe\upspa-demo-logs\postgres.log and C:\Users\efebe\upspa-demo-logs\pgctl-start.log
+
+Done. Full log: C:\Users\efebe\upspa-demo-logs\run-20260530-210200.log
+Upload that log (and any *.err.log) to Basecamp as your Step 2 feedback.
+
+# ---------------------------------------------------------------------------
+# DIAGNOSIS (added for the record):
+# Port 5432 was FREE at STEP 0, so the script took the "start fresh" path. But the
+# server log has NO entries after 21:01:09 (the previous server's "received fast
+# shutdown request" after a Ctrl-C). If the 21:02 server had come up it would have
+# logged "database system is ready to accept connections". It did not: the unclean
+# shutdown left a stale postmaster.pid, so the new postgres printed "another server
+# might be running" and refused to bind. pg_isready then timed out for 60s.
+# The "role efebe does not exist" lines are harmless pg_isready probes defaulting to
+# the OS username; they do not block readiness. The "server started" text is STALE,
+# from an earlier run that used pg_ctl -w.
+# FIX (script version 2026-05-30n): before starting, stop any lingering server and
+# delete a stale postmaster.pid, then start and poll pg_isready on 127.0.0.1.
+# ---------------------------------------------------------------------------
