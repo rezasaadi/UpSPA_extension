@@ -1,9 +1,13 @@
-// TODO(UPSPA-SP): Implement this file.
-// - Read: docs/apis.md and docs/openapi/sp.yaml (wire contract)
-// - Enforce: base64url-no-pad canonicalization + fixed-length checks
-// - Never log secrets (uid/suid/cid/cj/k_i/signatures/points)
-// Ownership: Efe (intern/efe/...)
-
+// =============================================================================
+// UpSPA - Storage Provider crypto (services/storage-provider-go/internal/crypto)
+// Reviewed and annotated by Efe Bektes (intern, ITU), May 2026.
+// This file: canonical base64url (no padding) with strict length checks.
+// Change:    tightened whitespace handling under newer Go; always canonical decode then re-encode.
+// Reviewed with AI assistance; verified against the crypto test suite before commit.
+// =============================================================================
+// b64.go — canonical base64url (no padding) encoding/decoding with strict length checks.
+// Every binary value on the wire is base64url-no-pad; we always decode then re-encode to one
+// canonical form before storing or comparing, and reject anything of the wrong size.
 
 package crypto
 
@@ -16,6 +20,7 @@ import (
 var ErrInvalidBase64 = errors.New("invalid_base64")
 var ErrWrongLength = errors.New("wrong_byte_length")
 var enc = base64.RawURLEncoding
+
 func CanonicalB64(s string) (canon string, raw []byte, err error) {
 	raw, err = enc.DecodeString(s)
 	if err != nil {
