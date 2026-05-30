@@ -1,10 +1,3 @@
-// TODO(UPSPA-SP): Implement this file.
-// - Read: docs/apis.md and docs/openapi/sp.yaml (wire contract)
-// - Enforce: base64url-no-pad canonicalization + fixed-length checks
-// - Never log secrets (uid/suid/cid/cj/k_i/signatures/points)
-
-//1st Week: The underlying cryptology concepts are tried to be skimmed, mostly AI based improved template code written
-
 package crypto_test
 
 import (
@@ -12,7 +5,7 @@ import (
 	"crypto/rand"
 	"testing"
 
-	"github.com/your-org/sp/internal/crypto"
+	"upspa/internal/crypto"
 )
 
 func TestVerifyEd25519_ValidSig(t *testing.T) {

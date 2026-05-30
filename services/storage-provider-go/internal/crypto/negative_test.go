@@ -1,12 +1,3 @@
-// Week 4: Expanded negative test suite.
-//
-// Covers every rejection category the protocol requires (HTTP 400):
-//   - Malformed base64 (whitespace, null bytes, wrong alphabet)
-//   - Wrong byte lengths for every fixed-size wire field
-//   - Invalid Ristretto255 point encodings
-//   - Invalid (non-canonical) scalar encodings
-//   - VerifyEd25519 panic guards for wrong-length inputs
-
 package crypto_test
 
 import (
@@ -15,20 +6,13 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/rezasaadi/UpSPA_FPB/services/storage-provider-go/internal/crypto"
+	"upspa/internal/crypto"
 )
-
-// ---------------------------------------------------------------------------
-// helper
-// ---------------------------------------------------------------------------
 
 func b64Zeros(n int) string {
 	return base64.RawURLEncoding.EncodeToString(make([]byte, n))
 }
 
-// ---------------------------------------------------------------------------
-// Malformed base64
-// ---------------------------------------------------------------------------
 
 func TestCanonicalB64_Negative_StandardAlphabetPlusSlash(t *testing.T) {
 	// '+' and '/' are not in the base64url alphabet.
@@ -53,13 +37,11 @@ func TestCanonicalB64_Negative_Punctuation(t *testing.T) {
 }
 
 func TestCanonicalB64_Negative_EmbeddedWhitespace(t *testing.T) {
-	// Note: Go 1.22+ base64.RawURLEncoding silently skips \n and \r\n,
-	// so those are NOT testable as rejections — they canonicalize fine.
 	cases := []string{
-		"dGVz dA",  // space — rejected
-		"dGVz\tdA", // tab  — rejected
-		" dGVzdA",  // leading space — rejected
-		"dGVzdA ",  // trailing space — rejected
+		"dGVz dA",  
+		"dGVz\tdA",
+		" dGVzdA",  
+		"dGVzdA ",  
 	}
 	for _, c := range cases {
 		if _, _, err := crypto.CanonicalB64(c); !errors.Is(err, crypto.ErrInvalidBase64) {
@@ -82,9 +64,6 @@ func TestCanonicalB64_Negative_HighByteChars(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Wrong byte lengths — one helper, called for every field type
-// ---------------------------------------------------------------------------
 
 func assertWrongLength(t *testing.T, fieldName string, wantLen int, badLens []int) {
 	t.Helper()
@@ -134,25 +113,34 @@ func TestDecodeFixedB64_Negative_InvalidBase64WinsOverWrongLength(t *testing.T) 
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Invalid Ristretto255 point encodings
-// ---------------------------------------------------------------------------
 
 func TestRistrettoScalarMult_Negative_InvalidPoints(t *testing.T) {
 	k := make([]byte, 32)
 	k[0] = 1 // canonical scalar = 1
-
-	// Note: 0xFF*32 and 0x80*32 are ACCEPTED by filippo.io/edwards25519 v1.1.0 —
-	// they happen to decode to valid curve points in the Edwards25519 field.
-	// Use encodings verified to be rejected by the library.
 	cases := []struct {
 		name  string
 		point []byte
 	}{
-		{"all 0x02", bytes.Repeat([]byte{0x02}, 32)},
-		{"all 0x7F", bytes.Repeat([]byte{0x7F}, 32)},
-		{"last byte 0x01", func() []byte { p := make([]byte, 32); p[31] = 0x01; return p }()},
-		{"last byte 0xE0", func() []byte { p := make([]byte, 32); p[31] = 0xE0; return p }()},
+		{
+			name:  "high-bit set (0xFF*32)",
+			point: bytes.Repeat([]byte{0xFF}, 32),
+		},
+		{
+			name:  "last byte 0x80",
+			point: func() []byte { p := make([]byte, 32); p[31] = 0x80; return p }(),
+		},
+		{
+			name: "non-canonical field element (p+1)",
+			point: func() []byte {
+				p := make([]byte, 32)
+				p[0] = 0xEE
+				for i := 1; i < 31; i++ {
+					p[i] = 0xFF
+				}
+				p[31] = 0x7F
+				return p
+			}(),
+		},
 	}
 
 	for _, tc := range cases {
@@ -168,10 +156,6 @@ func TestRistrettoScalarMult_Negative_InvalidPoints(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Invalid (non-canonical) scalar encodings
-// ---------------------------------------------------------------------------
-
 func TestRistrettoScalarMult_Negative_InvalidScalars(t *testing.T) {
 	point := validRistrettoPoint()
 
@@ -182,7 +166,6 @@ func TestRistrettoScalarMult_Negative_InvalidScalars(t *testing.T) {
 		{"all 0xFF (>> l)", bytes.Repeat([]byte{0xFF}, 32)},
 		{"all 0x7F (> l)", bytes.Repeat([]byte{0x7F}, 32)},
 		{
-			// l = 2^252 + 27742317777372353535851937790883648493 in little-endian
 			"scalar equals l",
 			[]byte{
 				0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58,
@@ -215,9 +198,6 @@ func TestRistrettoScalarMult_Negative_InvalidScalars(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Wrong lengths for RistrettoScalarMult inputs
-// ---------------------------------------------------------------------------
 
 func TestRistrettoScalarMult_Negative_ScalarWrongLengths(t *testing.T) {
 	point := validRistrettoPoint()
@@ -240,9 +220,6 @@ func TestRistrettoScalarMult_Negative_PointWrongLengths(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// VerifyEd25519 panic guards
-// ---------------------------------------------------------------------------
 
 func TestVerifyEd25519_Negative_ShortKeyPanics(t *testing.T) {
 	defer func() {

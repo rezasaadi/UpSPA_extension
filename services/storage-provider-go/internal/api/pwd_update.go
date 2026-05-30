@@ -1,85 +1,82 @@
 package api
 
 import (
-	"encoding/base64"
+	"math"
 	"net/http"
+
+	spcrypto "upspa/internal/crypto"
 	"upspa/internal/model"
 )
 
-// PasswordUpdate handles POST /v1/password-update
 func (h *Handler) PasswordUpdate(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method Not Allowed", nil)
-		return
-	}
-
 	var req model.PasswordUpdateRequest
 	if err := ReadJSON(w, r, &req); err != nil {
-		WriteError(w, http.StatusBadRequest, "invalid_json", "Bad Request: Invalid JSON body", nil)
+		WriteError(w, http.StatusBadRequest, "invalid_json", "invalid JSON body", nil)
+		return
+	}
+	if req.SpID != h.spID {
+		WriteError(w, http.StatusBadRequest, "invalid_sp_id", "request sp_id does not match this SP", nil)
+		return
+	}
+	if req.Timestamp > uint64(math.MaxInt64) {
+		WriteError(w, http.StatusBadRequest, "invalid_timestamp", "timestamp too large", nil)
 		return
 	}
 
-	// Validate fixed lengths
-	if err := validateBase64URLNoPad(req.UIDB64, 32); err != nil {
-		WriteError(w, http.StatusBadRequest, "invalid_uid", "Bad Request: Invalid uid format or length", nil)
-		return
-	}
-	if err := validateBase64URLNoPad(req.SigB64, 64); err != nil {
-		WriteError(w, http.StatusBadRequest, "invalid_sig", "Bad Request: Invalid sig format or length", nil)
-		return
-	}
-	if err := validateBase64URLNoPad(req.CIDNew.Nonce, 24); err != nil {
-		WriteError(w, http.StatusBadRequest, "invalid_cid_nonce", "Bad Request: Invalid cid_nonce format or length", nil)
-		return
-	}
-	if err := validateBase64URLNoPad(req.CIDNew.Ct, 96); err != nil {
-		WriteError(w, http.StatusBadRequest, "invalid_cid_ct", "Bad Request: Invalid cid_ct format or length", nil)
-		return
-	}
-	if err := validateBase64URLNoPad(req.CIDNew.Tag, 16); err != nil {
-		WriteError(w, http.StatusBadRequest, "invalid_cid_tag", "Bad Request: Invalid cid_tag format or length", nil)
-		return
-	}
-	if err := validateBase64URLNoPad(req.KINewB64, 32); err != nil {
-		WriteError(w, http.StatusBadRequest, "invalid_ki_new", "Bad Request: Invalid k_i_new format or length", nil)
-		return
-	}
-
-	// Lookup existing setup state to get the verification key and last timestamp
-	sigPkB64, lastTimestamp, err := h.store.GetPasswordUpdateState(r.Context(), req.UIDB64)
+	_, uidCanon, err := decodeCanonicalNonEmpty(req.UIDB64)
 	if err != nil {
-		if err == ErrNotFound {
-			WriteError(w, http.StatusNotFound, "not_found", "User not found", nil)
-			return
-		}
-		WriteError(w, http.StatusInternalServerError, "internal_error", "Internal Server Error", nil)
+		badField(w, "invalid_uid", "uid_b64")
 		return
 	}
-
-	// Replay Protection
-	if req.Timestamp <= lastTimestamp {
-		WriteError(w, http.StatusConflict, "stale_timestamp", "Timestamp must be strictly greater than last update", nil)
-		return
-	}
-
-	// Ed25519 Signature Verification
-	sigPkBytes, _ := base64.RawURLEncoding.DecodeString(sigPkB64)
-	sigBytes, _ := base64.RawURLEncoding.DecodeString(req.SigB64)
-	
-	// Create mock msg for now. In real integration, we'd rebuild exactly per protocol-phases.md
-	msgBytes := []byte("mock_signature_message_payload")
-	
-	if !h.crypto.VerifyEd25519(sigPkBytes, msgBytes, sigBytes) {
-		WriteError(w, http.StatusUnauthorized, "invalid_signature", "Ed25519 signature is invalid", nil)
-		return
-	}
-
-	// Save the new state
-	err = h.store.PutPasswordUpdate(r.Context(), req.UIDB64, req.CIDNew.Nonce, req.CIDNew.Ct, req.CIDNew.Tag, req.KINewB64, req.Timestamp)
+	sigRaw, _, err := decodeFixed(req.SigB64, spcrypto.LenEd25519Signature)
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, "internal_error", "Internal Server Error", nil)
+		badField(w, "invalid_sig", "sig_b64")
+		return
+	}
+	cidNonceRaw, cidCtRaw, cidTagRaw, cidCanon, err := canonicalCtBlob(req.CIDNew, lenCipherIDCt)
+	if err != nil {
+		badField(w, "invalid_cid_new", "cid_new")
+		return
+	}
+	kINewRaw, kINewCanon, err := decodeFixed(req.KINewB64, spcrypto.LenScalarKi)
+	if err != nil {
+		badField(w, "invalid_k_i_new", "k_i_new_b64")
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
+	sigPkB64, _, _, _, _, lastTs, found, err := h.store.GetSetup(r.Context(), uidCanon)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+	if !found {
+		WriteError(w, http.StatusNotFound, "not_found", "user setup not found", nil)
+		return
+	}
+	if int64(req.Timestamp) <= lastTs {
+		WriteError(w, http.StatusConflict, "replay", "stale password update timestamp", nil)
+		return
+	}
+	sigPkRaw, _, err := decodeFixed(sigPkB64, spcrypto.LenEd25519PublicKey)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "stored_invalid_sig_pk", "stored public key is invalid", nil)
+		return
+	}
+
+	msg := spcrypto.BuildPwdUpdateSigMsg(cidNonceRaw, cidCtRaw, cidTagRaw, kINewRaw, req.Timestamp, req.SpID)
+	if !spcrypto.VerifyEd25519(sigPkRaw, msg, sigRaw) {
+		WriteError(w, http.StatusUnauthorized, "invalid_signature", "invalid password update signature", nil)
+		return
+	}
+
+	applied, err := h.store.ApplyPasswordUpdate(r.Context(), uidCanon, int64(req.Timestamp), cidCanon.Nonce, cidCanon.Ct, cidCanon.Tag, kINewCanon)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+	if !applied {
+		WriteError(w, http.StatusConflict, "replay", "stale password update timestamp", nil)
+		return
+	}
+	_ = WriteJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }

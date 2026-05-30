@@ -13,7 +13,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/your-org/sp/internal/crypto"
+	"upspa/internal/crypto"
 )
 
 func TestCanonicalB64_RoundTrip(t *testing.T) {

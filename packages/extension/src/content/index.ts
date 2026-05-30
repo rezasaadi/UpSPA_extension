@@ -1,111 +1,279 @@
-import type { BgRequest, BgResponse } from '../shared/messages';
+import {
+  authenticateForSite,
+  commitSecretUpdateForSite,
+  prepareSecretUpdateForSite,
+  registerForSite,
+} from '../shared/upspaActions';
+import { getConfig } from '../shared/config';
 
-function debug(...args: unknown[]) {
-  const enabled = false;
-  if (enabled) console.log('[UpSPA]', ...args);
+type UpSpaFlow = 'register' | 'auth' | 'secret-update';
+
+const bypassForms = new WeakSet<HTMLFormElement>();
+
+function getPasswordInputs(form: HTMLFormElement): HTMLInputElement[] {
+  return Array.from(form.querySelectorAll('input[type="password"]'));
 }
 
-async function bg<T extends BgResponse>(msg: BgRequest): Promise<T> {
-  const res = (await chrome.runtime.sendMessage(msg)) as T;
-  return res;
+function getInputByNames(form: HTMLFormElement, names: string[]): HTMLInputElement | null {
+  for (const name of names) {
+    const el = form.querySelector(`input[name="${name}"]`);
+    if (el instanceof HTMLInputElement) return el;
+  }
+  return null;
 }
 
-function passwordInputs(form: HTMLFormElement): HTMLInputElement[] {
-  const inputs = Array.from(form.querySelectorAll('input')) as HTMLInputElement[];
-  return inputs.filter((i) => (i.type || '').toLowerCase() === 'password');
+function setInputValue(input: HTMLInputElement, value: string): void {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+  setter?.call(input, value);
+
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
-function classifyForm(pws: HTMLInputElement[]): 'login' | 'register' | 'change-password' {
-  if (pws.length <= 1) return 'login';
-  if (pws.length === 2) return 'register';
-  return 'change-password';
+function getAccountId(form: HTMLFormElement): string {
+  const accountInput = getInputByNames(form, [
+    'account_id',
+    'uid_prime',
+    'uidp',
+    'username',
+    'email',
+    'login',
+  ]);
+
+  return accountInput?.value.trim() || '';
 }
 
-function markProcessed(form: HTMLFormElement): void {
-  (form as any).__upspaProcessed = true;
+function getMainUid(form: HTMLFormElement): string | undefined {
+  const uidInput = getInputByNames(form, [
+    'uid',
+    'upspa_uid',
+    'main_uid',
+    'setup_uid',
+  ]);
+
+  if (!uidInput) return undefined;
+
+  const uid = uidInput.value.trim();
+  if (!uid) throw new Error('Main UpSPA UID is empty.');
+  return uid;
 }
 
-function alreadyProcessed(form: HTMLFormElement): boolean {
-  return Boolean((form as any).__upspaProcessed);
+async function fillMainUidInputs(): Promise<void> {
+  const cfg = await getConfig();
+  const uid = cfg.uid?.trim();
+  if (!uid) return;
+
+  const inputs = document.querySelectorAll<HTMLInputElement>(
+    'input[name="uid"], input[name="upspa_uid"], input[name="main_uid"], input[name="setup_uid"]',
+  );
+
+  inputs.forEach((input) => {
+    if (!input.value.trim()) setInputValue(input, uid);
+  });
 }
 
-async function handleFormSubmit(form: HTMLFormElement, ev: SubmitEvent): Promise<void> {
-  const pws = passwordInputs(form);
-  if (pws.length === 0) return;
-  if (alreadyProcessed(form)) return;
+function explainError(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e);
 
-  const mode = classifyForm(pws);
-  const lsj = window.location.origin;
-  const masterPassword = pws[0].value;
-  if (!masterPassword) return; 
-  if (mode === 'register' && pws[1].value !== masterPassword) {
-    debug('register form: password fields mismatch; skipping UpSPA transform');
+  if (msg.toLowerCase().includes('aead error')) {
+    return [
+      'Could not decrypt the UpSPA setup/record.',
+      'Check that Main UpSPA UID matches the UID used in Options setup, the master password is correct, and the SP databases were not reset without running setup/provision again.',
+    ].join(' ');
+  }
+
+  return msg;
+}
+
+function makeLsj(form: HTMLFormElement): string {
+  const accountId = getAccountId(form);
+
+  // Important:
+  // origin alone gives one UpSPA record per website.
+  // origin|account_id gives one UpSPA record per website account.
+  return accountId ? `${window.location.origin}|${accountId}` : window.location.origin;
+}
+
+function detectFlow(form: HTMLFormElement, pwds: HTMLInputElement[]): UpSpaFlow | null {
+  const explicit = form.getAttribute('data-upspa-flow');
+
+  if (explicit === 'register' || explicit === 'auth' || explicit === 'secret-update') {
+    return explicit;
+  }
+
+  const action = form.getAttribute('action') || '';
+
+  if (action.includes('secret-update')) return 'secret-update';
+  if (action.includes('register')) return 'register';
+  if (action.includes('login')) return 'auth';
+
+  if (pwds.length === 1) return 'auth';
+  if (pwds.length === 2) return 'register';
+  if (pwds.length >= 3) return 'secret-update';
+
+  return null;
+}
+function submitNative(form: HTMLFormElement): void {
+  bypassForms.add(form);
+  HTMLFormElement.prototype.submit.call(form);
+}
+
+async function handleRegister(form: HTMLFormElement, pwds: HTMLInputElement[]): Promise<void> {
+  if (pwds.length < 1) throw new Error('Registration form has no password field.');
+
+  const password = pwds[0].value;
+
+  if (pwds.length >= 2 && pwds[0].value !== pwds[1].value) {
+    throw new Error('Registration password fields do not match.');
+  }
+
+  const transformed = await registerForSite(makeLsj(form), password, getMainUid(form));
+
+  // Fill every password field with the LS password generated by UpSPA.
+  for (const pwd of pwds) {
+    setInputValue(pwd, transformed);
+  }
+
+  submitNative(form);
+}
+
+async function handleAuth(form: HTMLFormElement, pwds: HTMLInputElement[]): Promise<void> {
+  if (pwds.length < 1) throw new Error('Login form has no password field.');
+
+  const masterPassword = pwds[0].value;
+  const transformed = await authenticateForSite(makeLsj(form), masterPassword, getMainUid(form));
+
+  setInputValue(pwds[0], transformed);
+  submitNative(form);
+}
+
+async function handleSecretUpdate(
+  form: HTMLFormElement,
+  pwds: HTMLInputElement[],
+): Promise<void> {
+  console.log('[UpSPA] secret update flow detected');
+
+  const lsj = makeLsj(form);
+  const mainUid = getMainUid(form);
+  console.log('[UpSPA] lsj =', lsj);
+  console.log('[UpSPA] uid =', mainUid ?? '(config)');
+
+  const masterInput =
+    getInputByNames(form, ['upspa_master_password', 'master_password']) ?? pwds[0];
+
+  if (!masterInput) {
+    throw new Error('Secret-update form has no UpSPA master password field.');
+  }
+
+  if (!masterInput.value) {
+    throw new Error('Master password is empty.');
+  }
+
+  const prepared = await prepareSecretUpdateForSite(lsj, masterInput.value, mainUid);
+
+  console.log('[UpSPA] oldForLs length =', prepared.oldForLs.length);
+  console.log('[UpSPA] newForLs length =', prepared.newForLs.length);
+
+  if (!prepared.oldForLs || !prepared.newForLs) {
+    throw new Error('Secret-update generated empty old/new LS secret.');
+  }
+
+  const formData = new FormData(form);
+
+  // Remove human master password. The LS must never receive it.
+  formData.delete('upspa_master_password');
+  formData.delete('master_password');
+
+  // Force the LS old/new password fields.
+  formData.set('old_password', prepared.oldForLs);
+  formData.set('new_password', prepared.newForLs);
+
+  // If the demo LS has confirm field later, keep it consistent.
+  formData.set('new_password_confirm', prepared.newForLs);
+
+  const body = new URLSearchParams();
+  formData.forEach((value, key) => {
+    body.set(key, String(value));
+  });
+
+  const action = form.getAttribute('action') || window.location.href;
+  const actionUrl = new URL(action, window.location.href).toString();
+  const method = (form.getAttribute('method') || 'POST').toUpperCase();
+
+  console.log('[UpSPA] submitting secret-update via fetch');
+  console.log('[UpSPA] action =', actionUrl);
+  console.log('[UpSPA] account_id =', body.get('account_id'));
+  console.log('[UpSPA] posted old length =', body.get('old_password')?.length ?? 0);
+  console.log('[UpSPA] posted new length =', body.get('new_password')?.length ?? 0);
+
+  const resp = await fetch(actionUrl, {
+    method,
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body,
+    credentials: 'include',
+  });
+
+  const html = await resp.text();
+
+  if (!resp.ok) {
+    console.warn('[UpSPA] secret-update rejected by login server:', resp.status, resp.statusText);
+    document.open();
+    document.write(html);
+    document.close();
     return;
   }
 
-  ev.preventDefault();
+  console.log('[UpSPA] login server accepted secret-update; committing to SPs');
+  await commitSecretUpdateForSite(prepared);
+  console.log('[UpSPA] secret-update committed to SPs');
 
-  try {
-    if (mode === 'login') {
-      const res = await bg<BgResponse>({ type: 'UPSRA_AUTH', lsj, password: masterPassword });
-      if (!res.ok) throw new Error(res.error);
-      const v = (res as any).vinfo_prime_b64 as string;
-      pws[0].value = v;
-      markProcessed(form);
-      form.submit();
+  document.open();
+  document.write(html);
+  document.close();
+}
+document.addEventListener(
+  'submit',
+  (event) => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement)) return;
+
+    if (bypassForms.has(form)) {
+      bypassForms.delete(form);
       return;
     }
 
-    if (mode === 'register') {
-      const res = await bg<BgResponse>({ type: 'UPSRA_REGISTER', lsj, password: masterPassword });
-      if (!res.ok) throw new Error(res.error);
-      const v = (res as any).vinfo_b64 as string;
-      for (const pw of pws) pw.value = v;
-      markProcessed(form);
-      form.submit();
-      return;
-    }
-    const prep = await bg<BgResponse>({ type: 'UPSRA_SECRET_UPDATE_PREP', lsj, password: masterPassword });
-    if (!prep.ok) throw new Error(prep.error);
+    const pwds = getPasswordInputs(form);
+    const flow = detectFlow(form, pwds);
 
-    const su = (prep as any).secret_update as {
-      vinfo_prime_b64: string;
-      vinfo_new_b64: string;
-      cj_new: any;
-      suids: Array<{ sp_id: number; suid: string }>;
-    };
-    pws[0].value = su.vinfo_prime_b64;
-    if (pws.length >= 2) pws[1].value = su.vinfo_new_b64;
-    if (pws.length >= 3) pws[2].value = su.vinfo_new_b64;
-    for (let i = 3; i < pws.length; i++) pws[i].value = su.vinfo_new_b64;
+    if (!flow) return;
 
-    markProcessed(form);
-    form.submit();
-    setTimeout(() => {
-      bg<BgResponse>({ type: 'UPSRA_SECRET_UPDATE_COMMIT', suids: su.suids, cj_new: su.cj_new })
-        .then((r) => {
-          if (!r.ok) console.warn('[UpSPA] secret update commit failed:', r.error);
-        })
-        .catch((e) => console.warn('[UpSPA] secret update commit failed:', e));
-    }, 2000);
-  } catch (e) {
-    console.warn('[UpSPA] failed to transform password:', e);
-    markProcessed(form);
-    form.submit();
-  }
-}
+    event.preventDefault();
+    event.stopImmediatePropagation();
 
-function attachToForms(root: Document | ShadowRoot) {
-  const forms = Array.from(root.querySelectorAll('form')) as HTMLFormElement[];
-  for (const f of forms) {
-    if ((f as any).__upspaBound) continue;
-    (f as any).__upspaBound = true;
-    f.addEventListener('submit', (ev) => {
-      void handleFormSubmit(f, ev as SubmitEvent);
-    });
-  }
-}
+    (async () => {
+      try {
+        if (flow === 'register') {
+          await handleRegister(form, pwds);
+        } else if (flow === 'auth') {
+          await handleAuth(form, pwds);
+        } else {
+          await handleSecretUpdate(form, pwds);
+        }
+      } catch (e) {
+        const msg = explainError(e);
+        console.error('[UpSPA] form handling failed:', e);
+        alert(`UpSPA failed: ${msg}\n\nThe original password was NOT submitted.`);
+      }
+    })();
+  },
+  true,
+);
 
-attachToForms(document);
-const mo = new MutationObserver(() => attachToForms(document));
-mo.observe(document.documentElement, { subtree: true, childList: true });
+console.log('[UpSPA] content script active:', window.location.origin);
+
+fillMainUidInputs().catch((e) => console.warn('[UpSPA] UID autofill failed:', e));
+document.addEventListener('DOMContentLoaded', () => {
+  fillMainUidInputs().catch((e) => console.warn('[UpSPA] UID autofill failed:', e));
+});

@@ -1,15 +1,20 @@
-if (typeof (globalThis as any).File === "undefined") {
-  (globalThis as any).File = class File {};
-}
+import { defineConfig, type PluginOption } from 'vite';
+import { crx } from '@crxjs/vite-plugin';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import manifest from './src/manifest';
 
-const { defineConfig } = await import("vite");
-const { crx } = await import("@crxjs/vite-plugin");
-const { default: wasm } = await import("vite-plugin-wasm");
-const manifest = (await import("./src/manifest")).default;
+const configDir = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
-  plugins: [wasm(), crx({ manifest })],
+  plugins: [crx({ manifest })] as unknown as PluginOption[],
+  resolve: {
+    alias: {
+      'upspa-js': resolve(configDir, '../upspa-js/dist/index.js'),
+    },
+  },
   build: {
-    target: "es2022",
+    sourcemap: true,
+    target: 'es2020',
   },
 });
