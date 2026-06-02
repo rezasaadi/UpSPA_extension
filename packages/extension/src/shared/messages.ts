@@ -1,8 +1,6 @@
 import type { UpspaConfig } from './config';
 import type { CtBlobB64 } from 'upspa-js';
-
 export type UpspaMode = 'login' | 'register' | 'change-password';
-
 export type BgRequest =
   | { type: 'UPSRA_GET_CONFIG' }
   | { type: 'UPSRA_SET_CONFIG'; cfg: UpspaConfig }
@@ -12,7 +10,6 @@ export type BgRequest =
   | { type: 'UPSRA_SECRET_UPDATE_PREP'; lsj: string; password: string }
   | { type: 'UPSRA_SECRET_UPDATE_COMMIT'; suids: Array<{ sp_id: number; suid: string }>; cj_new: CtBlobB64 }
   | { type: 'UPSRA_PASSWORD_UPDATE'; old_password: string; new_password: string; timestamp: number };
-
 export type BgResponse =
   | { ok: true; cfg?: UpspaConfig }
   | { ok: true; vinfo_b64: string }

@@ -1,48 +1,37 @@
 package api
-
 import (
 	"context"
 	"errors"
 	"net/http"
-
 	spcrypto "upspa/internal/crypto"
 	"upspa/internal/model"
 )
-
 const (
 	lenUIDMin     = 1
 	lenSUID       = 32
 	lenCipherIDCt = 96
 	lenCipherSpCt = 40
 )
-
 var (
 	ErrInvalidBase64 = errors.New("invalid base64url encoding")
 	ErrInvalidLength = errors.New("invalid decoded byte length")
 	ErrNotFound      = errors.New("record not found")
 	ErrConflict      = errors.New("record conflict")
 )
-
-// Store is the DB contract used by the API layer. services/storage-provider-go/internal/db.Store implements it.
 type Store interface {
 	PutSetup(ctx context.Context, uid, sigPk, cidNonce, cidCt, cidTag, kI string) (bool, error)
 	GetSetup(ctx context.Context, uid string) (sigPk, cidNonce, cidCt, cidTag, kI string, lastTs int64, found bool, err error)
 	GetKi(ctx context.Context, uid string) (kI string, found bool, err error)
-
 	CreateRecord(ctx context.Context, suid, cjNonce, cjCt, cjTag string) (bool, error)
 	GetRecord(ctx context.Context, suid string) (cjNonce, cjCt, cjTag string, found bool, err error)
 	UpdateRecord(ctx context.Context, suid, cjNonce, cjCt, cjTag string) (bool, error)
 	DeleteRecord(ctx context.Context, suid string) (bool, error)
-
 	ApplyPasswordUpdate(ctx context.Context, uid string, ts int64, cidNonceNew, cidCtNew, cidTagNew, kINew string) (bool, error)
 }
-
 type Handler struct {
 	store Store
 	spID  uint32
 }
-
-// NewHandler creates a Handler. spID defaults to 1 for tests if omitted.
 func NewHandler(s Store, spID ...uint32) *Handler {
 	id := uint32(1)
 	if len(spID) > 0 && spID[0] != 0 {
@@ -50,7 +39,6 @@ func NewHandler(s Store, spID ...uint32) *Handler {
 	}
 	return &Handler{store: s, spID: id}
 }
-
 func decodeCanonicalNonEmpty(s string) (raw []byte, canon string, err error) {
 	raw, canon, err = spcrypto.DecodeFixedB64(s, -1)
 	if err != nil {
@@ -61,15 +49,12 @@ func decodeCanonicalNonEmpty(s string) (raw []byte, canon string, err error) {
 	}
 	return raw, canon, nil
 }
-
 func decodeFixed(s string, n int) (raw []byte, canon string, err error) {
 	return spcrypto.DecodeFixedB64(s, n)
 }
-
 func badField(w http.ResponseWriter, code, field string) {
 	WriteError(w, http.StatusBadRequest, code, "invalid field", map[string]any{"field": field})
 }
-
 func canonicalCtBlob(b model.CtBlob, ctLen int) (nonceRaw, ctRaw, tagRaw []byte, canon model.CtBlob, err error) {
 	nonceRaw, canon.Nonce, err = decodeFixed(b.Nonce, spcrypto.LenCtBlobNonce)
 	if err != nil {
@@ -85,14 +70,12 @@ func canonicalCtBlob(b model.CtBlob, ctLen int) (nonceRaw, ctRaw, tagRaw []byte,
 	}
 	return nonceRaw, ctRaw, tagRaw, canon, nil
 }
-
 func (h *Handler) Setup(w http.ResponseWriter, r *http.Request) {
 	var req model.SetupRequest
 	if err := ReadJSON(w, r, &req); err != nil {
 		WriteError(w, http.StatusBadRequest, "invalid_json_body", "invalid JSON body", map[string]any{"error": err.Error()})
 		return
 	}
-
 	_, uidCanon, err := decodeCanonicalNonEmpty(req.UIDB64)
 	if err != nil {
 		badField(w, "invalid_uid", "uid_b64")
@@ -113,7 +96,6 @@ func (h *Handler) Setup(w http.ResponseWriter, r *http.Request) {
 		badField(w, "invalid_k_i", "k_i_b64")
 		return
 	}
-
 	created, err := h.store.PutSetup(r.Context(), uidCanon, sigCanon, cidCanon.Nonce, cidCanon.Ct, cidCanon.Tag, kICanon)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)

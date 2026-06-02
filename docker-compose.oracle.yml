@@ -1,0 +1,83 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: upspa
+      POSTGRES_PASSWORD: upspa
+      POSTGRES_DB: upspa
+    volumes:
+      - oracle-postgres-data:/var/lib/postgresql/data
+      - ./scripts/oracle/init_postgres.sql:/docker-entrypoint-initdb.d/001-init-postgres.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U upspa -d upspa"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  sp1:
+    build:
+      context: .
+      dockerfile: docker/oracle/sp.Dockerfile
+    environment:
+      DATABASE_URL: postgres://upspa:upspa@postgres:5432/upspa1?sslmode=disable
+      SP_ID: "1"
+      PORT: "8080"
+    ports:
+      - "8081:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+  sp2:
+    build:
+      context: .
+      dockerfile: docker/oracle/sp.Dockerfile
+    environment:
+      DATABASE_URL: postgres://upspa:upspa@postgres:5432/upspa2?sslmode=disable
+      SP_ID: "2"
+      PORT: "8080"
+    ports:
+      - "8082:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+  sp3:
+    build:
+      context: .
+      dockerfile: docker/oracle/sp.Dockerfile
+    environment:
+      DATABASE_URL: postgres://upspa:upspa@postgres:5432/upspa3?sslmode=disable
+      SP_ID: "3"
+      PORT: "8080"
+    ports:
+      - "8083:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+  ls1:
+    build:
+      context: .
+      dockerfile: docker/oracle/login-server.Dockerfile
+    environment:
+      PORT: "3000"
+      LS_NAME: ls1
+    ports:
+      - "3000:3000"
+  ls2:
+    build:
+      context: .
+      dockerfile: docker/oracle/login-server.Dockerfile
+    environment:
+      PORT: "3000"
+      LS_NAME: ls2
+    ports:
+      - "3001:3000"
+  ls3:
+    build:
+      context: .
+      dockerfile: docker/oracle/login-server.Dockerfile
+    environment:
+      PORT: "3000"
+      LS_NAME: ls3
+    ports:
+      - "3002:3000"
+volumes:
+  oracle-postgres-data:

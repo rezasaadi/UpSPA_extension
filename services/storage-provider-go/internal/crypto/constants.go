@@ -7,7 +7,6 @@ const (
 	LenRistretto = 32
 	LenScalarKi = 32
 )
-
 const (
 	LenTimestamp = 8
 	LenSpID = 4

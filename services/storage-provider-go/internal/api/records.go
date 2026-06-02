@@ -1,10 +1,8 @@
 package api
-
 import (
 	"net/http"
 	"upspa/internal/model"
 )
-
 func (h *Handler) RecordCreate(w http.ResponseWriter, r *http.Request) {
 	var req model.RecordCreateRequest
 	if err := ReadJSON(w, r, &req); err != nil {
@@ -21,7 +19,6 @@ func (h *Handler) RecordCreate(w http.ResponseWriter, r *http.Request) {
 		badField(w, "invalid_cj", "cj")
 		return
 	}
-
 	created, err := h.store.CreateRecord(r.Context(), suidCanon, cjCanon.Nonce, cjCanon.Ct, cjCanon.Tag)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
@@ -33,7 +30,6 @@ func (h *Handler) RecordCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = WriteJSON(w, http.StatusCreated, map[string]bool{"ok": true})
 }
-
 func (h *Handler) RecordGet(w http.ResponseWriter, r *http.Request) {
 	_, suidCanon, err := decodeFixed(r.PathValue("suid_b64"), lenSUID)
 	if err != nil {
@@ -51,7 +47,6 @@ func (h *Handler) RecordGet(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = WriteJSON(w, http.StatusOK, model.RecordResponse{SUIDB64: suidCanon, CJ: model.CtBlob{Nonce: n, Ct: c, Tag: t}})
 }
-
 func (h *Handler) RecordUpdate(w http.ResponseWriter, r *http.Request) {
 	_, suidCanon, err := decodeFixed(r.PathValue("suid_b64"), lenSUID)
 	if err != nil {
@@ -79,7 +74,6 @@ func (h *Handler) RecordUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = WriteJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
-
 func (h *Handler) RecordDelete(w http.ResponseWriter, r *http.Request) {
 	_, suidCanon, err := decodeFixed(r.PathValue("suid_b64"), lenSUID)
 	if err != nil {

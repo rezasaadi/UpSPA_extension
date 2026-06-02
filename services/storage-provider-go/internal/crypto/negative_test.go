@@ -1,27 +1,20 @@
 package crypto_test
-
 import (
 	"bytes"
 	"encoding/base64"
 	"errors"
 	"testing"
-
 	"upspa/internal/crypto"
 )
-
 func b64Zeros(n int) string {
 	return base64.RawURLEncoding.EncodeToString(make([]byte, n))
 }
-
-
 func TestCanonicalB64_Negative_StandardAlphabetPlusSlash(t *testing.T) {
-	// '+' and '/' are not in the base64url alphabet.
 	_, _, err := crypto.CanonicalB64("+/8=")
 	if !errors.Is(err, crypto.ErrInvalidBase64) {
 		t.Errorf("want ErrInvalidBase64 for '+/' chars, got %v", err)
 	}
 }
-
 func TestCanonicalB64_Negative_Punctuation(t *testing.T) {
 	cases := []string{
 		"!!!not-base64!!!",
@@ -35,13 +28,12 @@ func TestCanonicalB64_Negative_Punctuation(t *testing.T) {
 		}
 	}
 }
-
 func TestCanonicalB64_Negative_EmbeddedWhitespace(t *testing.T) {
 	cases := []string{
-		"dGVz dA",  
+		"dGVz dA",
 		"dGVz\tdA",
-		" dGVzdA",  
-		"dGVzdA ",  
+		" dGVzdA",
+		"dGVzdA ",
 	}
 	for _, c := range cases {
 		if _, _, err := crypto.CanonicalB64(c); !errors.Is(err, crypto.ErrInvalidBase64) {
@@ -49,22 +41,18 @@ func TestCanonicalB64_Negative_EmbeddedWhitespace(t *testing.T) {
 		}
 	}
 }
-
 func TestCanonicalB64_Negative_NullBytes(t *testing.T) {
 	_, _, err := crypto.CanonicalB64("\x00\x00\x00\x00")
 	if !errors.Is(err, crypto.ErrInvalidBase64) {
 		t.Errorf("want ErrInvalidBase64 for null bytes, got %v", err)
 	}
 }
-
 func TestCanonicalB64_Negative_HighByteChars(t *testing.T) {
 	_, _, err := crypto.CanonicalB64("\xff\xfe\xfd")
 	if !errors.Is(err, crypto.ErrInvalidBase64) {
 		t.Errorf("want ErrInvalidBase64 for non-ASCII bytes, got %v", err)
 	}
 }
-
-
 func assertWrongLength(t *testing.T, fieldName string, wantLen int, badLens []int) {
 	t.Helper()
 	for _, l := range badLens {
@@ -75,48 +63,39 @@ func assertWrongLength(t *testing.T, fieldName string, wantLen int, badLens []in
 		}
 	}
 }
-
 func TestDecodeFixedB64_Negative_Ed25519PublicKey(t *testing.T) {
 	assertWrongLength(t, "Ed25519PublicKey", crypto.LenEd25519PublicKey,
 		[]int{0, 1, 16, 31, 33, 48, 64})
 }
-
 func TestDecodeFixedB64_Negative_Ed25519Signature(t *testing.T) {
 	assertWrongLength(t, "Ed25519Signature", crypto.LenEd25519Signature,
 		[]int{0, 1, 32, 63, 65, 128})
 }
-
 func TestDecodeFixedB64_Negative_CtBlobNonce(t *testing.T) {
 	assertWrongLength(t, "CtBlobNonce", crypto.LenCtBlobNonce,
 		[]int{0, 1, 16, 23, 25, 32})
 }
-
 func TestDecodeFixedB64_Negative_CtBlobTag(t *testing.T) {
 	assertWrongLength(t, "CtBlobTag", crypto.LenCtBlobTag,
 		[]int{0, 1, 8, 15, 17, 32})
 }
-
 func TestDecodeFixedB64_Negative_Ristretto(t *testing.T) {
 	assertWrongLength(t, "Ristretto", crypto.LenRistretto,
 		[]int{0, 1, 16, 31, 33, 64})
 }
-
 func TestDecodeFixedB64_Negative_ScalarKi(t *testing.T) {
 	assertWrongLength(t, "ScalarKi", crypto.LenScalarKi,
 		[]int{0, 1, 16, 31, 33, 64})
 }
-
 func TestDecodeFixedB64_Negative_InvalidBase64WinsOverWrongLength(t *testing.T) {
 	_, _, err := crypto.DecodeFixedB64("!!!bad!!!", 32)
 	if !errors.Is(err, crypto.ErrInvalidBase64) {
 		t.Errorf("want ErrInvalidBase64 for completely invalid input, got %v", err)
 	}
 }
-
-
 func TestRistrettoScalarMult_Negative_InvalidPoints(t *testing.T) {
 	k := make([]byte, 32)
-	k[0] = 1 // canonical scalar = 1
+	k[0] = 1
 	cases := []struct {
 		name  string
 		point []byte
@@ -142,7 +121,6 @@ func TestRistrettoScalarMult_Negative_InvalidPoints(t *testing.T) {
 			}(),
 		},
 	}
-
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := crypto.RistrettoScalarMult(k, tc.point)
@@ -155,10 +133,8 @@ func TestRistrettoScalarMult_Negative_InvalidPoints(t *testing.T) {
 		})
 	}
 }
-
 func TestRistrettoScalarMult_Negative_InvalidScalars(t *testing.T) {
 	point := validRistrettoPoint()
-
 	cases := []struct {
 		name   string
 		scalar []byte
@@ -184,7 +160,6 @@ func TestRistrettoScalarMult_Negative_InvalidScalars(t *testing.T) {
 			},
 		},
 	}
-
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := crypto.RistrettoScalarMult(tc.scalar, point)
@@ -197,8 +172,6 @@ func TestRistrettoScalarMult_Negative_InvalidScalars(t *testing.T) {
 		})
 	}
 }
-
-
 func TestRistrettoScalarMult_Negative_ScalarWrongLengths(t *testing.T) {
 	point := validRistrettoPoint()
 	for _, badLen := range []int{0, 1, 16, 31, 33, 64} {
@@ -208,7 +181,6 @@ func TestRistrettoScalarMult_Negative_ScalarWrongLengths(t *testing.T) {
 		}
 	}
 }
-
 func TestRistrettoScalarMult_Negative_PointWrongLengths(t *testing.T) {
 	k := make([]byte, 32)
 	k[0] = 1
@@ -219,8 +191,6 @@ func TestRistrettoScalarMult_Negative_PointWrongLengths(t *testing.T) {
 		}
 	}
 }
-
-
 func TestVerifyEd25519_Negative_ShortKeyPanics(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {
@@ -229,7 +199,6 @@ func TestVerifyEd25519_Negative_ShortKeyPanics(t *testing.T) {
 	}()
 	_ = crypto.VerifyEd25519(make([]byte, 31), []byte("msg"), make([]byte, 64))
 }
-
 func TestVerifyEd25519_Negative_LongKeyPanics(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {
@@ -238,7 +207,6 @@ func TestVerifyEd25519_Negative_LongKeyPanics(t *testing.T) {
 	}()
 	_ = crypto.VerifyEd25519(make([]byte, 33), []byte("msg"), make([]byte, 64))
 }
-
 func TestVerifyEd25519_Negative_ShortSigPanics(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {
@@ -247,7 +215,6 @@ func TestVerifyEd25519_Negative_ShortSigPanics(t *testing.T) {
 	}()
 	_ = crypto.VerifyEd25519(make([]byte, 32), []byte("msg"), make([]byte, 63))
 }
-
 func TestVerifyEd25519_Negative_LongSigPanics(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {

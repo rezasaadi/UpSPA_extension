@@ -1,5 +1,4 @@
 package crypto
-
 import (
 	"crypto/ed25519"
 	"fmt"

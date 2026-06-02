@@ -1,14 +1,9 @@
-// Week 2: Tests for GenerateScalarKi — correct k_i generation per RFC 9497.
-
 package crypto_test
-
 import (
 	"bytes"
 	"testing"
-
 	"upspa/internal/crypto"
 )
-
 func TestGenerateScalarKi_Length(t *testing.T) {
 	ki, err := crypto.GenerateScalarKi()
 	if err != nil {
@@ -18,7 +13,6 @@ func TestGenerateScalarKi_Length(t *testing.T) {
 		t.Errorf("want %d bytes, got %d", crypto.LenScalarKi, len(ki))
 	}
 }
-
 func TestGenerateScalarKi_IsCanonical(t *testing.T) {
 	basePoint := validRistrettoPoint()
 	for i := 0; i < 100; i++ {
@@ -32,7 +26,6 @@ func TestGenerateScalarKi_IsCanonical(t *testing.T) {
 		}
 	}
 }
-
 func TestGenerateScalarKi_Unique(t *testing.T) {
 	ki1, err1 := crypto.GenerateScalarKi()
 	ki2, err2 := crypto.GenerateScalarKi()
@@ -43,7 +36,6 @@ func TestGenerateScalarKi_Unique(t *testing.T) {
 		t.Error("two independently generated k_i values are identical (RNG failure?)")
 	}
 }
-
 func TestGenerateScalarKi_NotAllZeros(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		ki, _ := crypto.GenerateScalarKi()

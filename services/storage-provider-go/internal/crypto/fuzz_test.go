@@ -2,7 +2,6 @@ package crypto_test
 import (
 	"encoding/base64"
 	"testing"
-
 	"upspa/internal/crypto"
 )
 func FuzzCanonicalB64(f *testing.F) {
@@ -28,7 +27,6 @@ func FuzzCanonicalB64(f *testing.F) {
 	for _, s := range seeds {
 		f.Add(s)
 	}
-
 	f.Fuzz(func(t *testing.T, input string) {
 		canon, raw, err := crypto.CanonicalB64(input)
 		if err != nil {
@@ -55,11 +53,10 @@ func FuzzDecodeFixedB64(f *testing.F) {
 	f.Add(base64.RawURLEncoding.EncodeToString(make([]byte, 64)), 64)
 	f.Add(base64.RawURLEncoding.EncodeToString(make([]byte, 24)), 24)
 	f.Add(base64.RawURLEncoding.EncodeToString(make([]byte, 16)), 16)
-	f.Add(base64.RawURLEncoding.EncodeToString(make([]byte, 31)), 32) // wrong len
+	f.Add(base64.RawURLEncoding.EncodeToString(make([]byte, 31)), 32)
 	f.Add("!!!bad!!!", 32)
 	f.Add("", 32)
 	f.Add("", 0)
-
 	f.Fuzz(func(t *testing.T, input string, n int) {
 		if n < 0 || n > 4096 {
 			return

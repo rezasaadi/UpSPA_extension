@@ -1,8 +1,6 @@
 set -euo pipefail
 branch="$(git rev-parse --abbrev-ref HEAD)"
-
 allowed=()
-
 case "$branch" in
   intern/efe)
     allowed+=("services/storage-provider-go/internal/crypto/")
@@ -34,15 +32,12 @@ case "$branch" in
 esac
 mapfile -t files < <(git diff --cached --name-only --diff-filter=ACMR)
 mapfile -t deleted < <(git diff --cached --name-only --diff-filter=D)
-if (( ${#deleted[@]} > 0 )); then
-  echo "Deletions are not allowed on intern branches."
+if (( ${  echo "Deletions are not allowed on intern branches."
   echo "   Deleted files staged:"
   printf '   - %s\n' "${deleted[@]}"
   exit 1
 fi
-
 violations=()
-
 is_allowed() {
   local f="$1"
   for p in "${allowed[@]}"; do
@@ -52,15 +47,12 @@ is_allowed() {
   done
   return 1
 }
-
 for f in "${files[@]}"; do
   if ! is_allowed "$f"; then
     violations+=("$f")
   fi
 done
-
-if (( ${#violations[@]} > 0 )); then
-  echo "Commit blocked on branch '$branch'."
+if (( ${  echo "Commit blocked on branch '$branch'."
   echo "You can only modify files under:"
   printf '  - %s\n' "${allowed[@]}"
   echo ""
@@ -70,5 +62,4 @@ if (( ${#violations[@]} > 0 )); then
   echo "Fix: unstage those files (git restore --staged <file>) or revert changes."
   exit 1
 fi
-
 exit 0

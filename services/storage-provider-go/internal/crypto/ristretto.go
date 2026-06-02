@@ -2,7 +2,6 @@ package crypto
 import (
 	"errors"
 	"fmt"
-
 	"github.com/gtank/ristretto255"
 )
 var ErrInvalidPoint = errors.New("invalid_ristretto_point")

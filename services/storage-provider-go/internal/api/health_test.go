@@ -1,12 +1,10 @@
 package api
-
 import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
-
 func TestHandleHealth(t *testing.T) {
 	req, err := http.NewRequest("GET", "/v1/health", nil)
 	if err != nil {
@@ -19,7 +17,6 @@ func TestHandleHealth(t *testing.T) {
 	}
 	expected := `{"ok":true}`
 	actual := strings.TrimSpace(rr.Body.String())
-
 	if actual != expected {
 		t.Errorf("Wrong response body returned! Expected: %s, Got: %s", expected, actual)
 	}

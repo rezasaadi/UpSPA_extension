@@ -1,5 +1,4 @@
 package config
-
 import (
 	"log"
 	"os"
@@ -13,15 +12,14 @@ type Config struct {
 func Load() *Config {
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080" // port 8080 for local development.
+		port = "8080"
 	}
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		dbURL = "postgres://postgres:postgres@localhost:5432/upspa?sslmode=disable"
 	}
 	spIDStr := os.Getenv("SP_ID")
-	var spID uint32 = 1 // Default SP ID for local development.
-
+	var spID uint32 = 1
 	if spIDStr != "" {
 		parsedID, err := strconv.ParseUint(spIDStr, 10, 32)
 		if err != nil {

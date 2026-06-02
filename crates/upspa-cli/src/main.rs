@@ -13,7 +13,6 @@ struct Cli {
     #[command(subcommand)]
     cmd: Command,
 }
-
 #[derive(Subcommand, Debug)]
 enum Command {
     Setup {
@@ -28,7 +27,6 @@ enum Command {
         #[arg(long)]
         seed_hex: Option<String>,
     },
-
     DemoFlow {
         #[arg(long)]
         uid: String,
@@ -44,7 +42,6 @@ enum Command {
         tsp: usize,
     },
 }
-
 fn parse_seed(seed_hex: Option<String>) -> Result<[u8; 32]> {
     let mut out = [0u8; 32];
     if let Some(h) = seed_hex {
@@ -58,11 +55,9 @@ fn parse_seed(seed_hex: Option<String>) -> Result<[u8; 32]> {
         Ok([42u8; 32])
     }
 }
-
 fn ct_to_b64<const N: usize>(ct: &upspa_core::types::CtBlob<N>) -> CtBlobB64 {
     ct.to_b64()
 }
-
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
@@ -75,9 +70,8 @@ fn main() -> Result<()> {
         } => {
             let seed = parse_seed(seed_hex)?;
             let mut rng = ChaCha20Rng::from_seed(seed);
-
-            let (out, payloads) = setup::client_setup(uid.as_bytes(), password.as_bytes(), nsp, tsp, &mut rng);
-
+            let (out, payloads) =
+                setup::client_setup(uid.as_bytes(), password.as_bytes(), nsp, tsp, &mut rng);
             let json = serde_json::json!({
                 "sig_pk_b64": b64_encode(&out.sig_pk),
                 "cid": ct_to_b64(&out.cid),
@@ -90,10 +84,8 @@ fn main() -> Result<()> {
                     "k_i_b64": b64_encode(&p.k_i),
                 })).collect::<Vec<_>>()
             });
-
             println!("{}", serde_json::to_string_pretty(&json)?);
         }
-
         Command::DemoFlow {
             uid,
             lsj,
@@ -103,8 +95,8 @@ fn main() -> Result<()> {
             tsp,
         } => {
             let mut rng = ChaCha20Rng::from_seed([7u8; 32]);
-
-            let (setup_out, _payloads) = setup::client_setup(uid.as_bytes(), password.as_bytes(), nsp, tsp, &mut rng);
+            let (setup_out, _payloads) =
+                setup::client_setup(uid.as_bytes(), password.as_bytes(), nsp, tsp, &mut rng);
             let (st, blinded) = ToprfClient::begin(password.as_bytes(), &mut rng);
             let mut partials = Vec::new();
             for (id, share_bytes) in setup_out.shares.iter().take(tsp) {
@@ -127,8 +119,14 @@ fn main() -> Result<()> {
                 &setup_out.cid,
                 nsp,
             )?;
-            let cjs = reg.per_sp.iter().take(tsp).map(|m| m.cj.clone()).collect::<Vec<_>>();
-            let auth_res = authenticate::client_auth_finish(uid.as_bytes(), lsj.as_bytes(), &auth_q.k0, &cjs)?;
+            let cjs = reg
+                .per_sp
+                .iter()
+                .take(tsp)
+                .map(|m| m.cj.clone())
+                .collect::<Vec<_>>();
+            let auth_res =
+                authenticate::client_auth_finish(uid.as_bytes(), lsj.as_bytes(), &auth_q.k0, &cjs)?;
             let su_q = secret_update::client_secret_update_prepare(
                 uid.as_bytes(),
                 lsj.as_bytes(),
@@ -136,8 +134,14 @@ fn main() -> Result<()> {
                 &setup_out.cid,
                 nsp,
             )?;
-            let su_res = secret_update::client_secret_update_finish(uid.as_bytes(), lsj.as_bytes(), &su_q.k0, &cjs, &mut rng)?;
-            let timestamp = 1_700_000_000u64; // demo
+            let su_res = secret_update::client_secret_update_finish(
+                uid.as_bytes(),
+                lsj.as_bytes(),
+                &su_q.k0,
+                &cjs,
+                &mut rng,
+            )?;
+            let timestamp = 1_700_000_000u64;
             let pw_res = password_update::client_password_update(
                 uid.as_bytes(),
                 &state_key,
@@ -148,7 +152,6 @@ fn main() -> Result<()> {
                 timestamp,
                 &mut rng,
             )?;
-
             let json = serde_json::json!({
                 "setup": {
                     "sig_pk_b64": b64_encode(&setup_out.sig_pk),
@@ -185,10 +188,8 @@ fn main() -> Result<()> {
                     })).collect::<Vec<_>>()
                 }
             });
-
             println!("{}", serde_json::to_string_pretty(&json)?);
         }
     }
-
     Ok(())
 }

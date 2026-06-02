@@ -1,9 +1,7 @@
 package crypto
-
 import (
 	"crypto/rand"
 	"fmt"
-
 	"github.com/gtank/ristretto255"
 )
 func GenerateScalarKi() ([]byte, error) {

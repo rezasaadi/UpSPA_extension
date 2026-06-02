@@ -34,52 +34,40 @@
   </head>
   <body>
     <h1>UpSPA Options</h1>
-
     <label>
       UID
       <input id="uid" value="test-user" />
     </label>
-
     <label>
       Master Password
       <input id="password" type="password" value="test-password" />
     </label>
-
     <label>
       Threshold
       <input id="threshold" type="number" min="1" value="1" />
     </label>
-
     <label>
       Storage Providers
       <textarea id="sps" rows="5">1,http://localhost:8081</textarea>
     </label>
-
     <button id="save">Save Config Only</button>
     <button id="setup">Setup / Provision SPs</button>
-
     <h2>Master Password Update</h2>
-
     <label>
       Old Master Password
       <input id="oldPassword" type="password" />
     </label>
-
     <label>
       New Master Password
       <input id="newPassword" type="password" />
     </label>
-
     <label>
       Confirm New Master Password
       <input id="newPasswordConfirm" type="password" />
     </label>
-
     <button id="passwordUpdate">Update Master Password</button>
-
     <h2>Status</h2>
     <pre id="status">Ready.</pre>
-
     <script type="module" src="./options.ts"></script>
   </body>
 </html>
