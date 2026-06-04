@@ -1,15 +1,21 @@
 package db
+
 import (
 	"context"
 	"embed"
 	"fmt"
 	"os"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+//go:embed migrations/001_init.sql
 var migrations embed.FS
+
 type Store struct {
 	pool *pgxpool.Pool
 }
+
 func New(ctx context.Context) (*Store, error) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
