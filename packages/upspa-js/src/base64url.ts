@@ -4,13 +4,13 @@ export function bytesToBase64Url(bytes: Uint8Array): string {
     return g.Buffer.from(bytes)
       .toString('base64')
       .replace(/\+/g, '-')
-      .replace(/\
+      .replace(/\//g, '_')
       .replace(/=+$/g, '');
   }
   let bin = '';
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
   const b64 = btoa(bin);
-  return b64.replace(/\+/g, '-').replace(/\
+  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
 export function base64UrlToBytes(s: string): Uint8Array {
   const b64 = s.replace(/-/g, '+').replace(/_/g, '/');
