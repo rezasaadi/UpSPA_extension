@@ -1,4 +1,3 @@
-#!/usr/bin/env bash
 set -e
 
 echo "[1/6] Stopping SP servers..."
