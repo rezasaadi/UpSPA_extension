@@ -161,13 +161,45 @@ function buildCandidate(chars: string[], shuffleBytes: Uint8Array): string {
   return out.join('');
 }
 
+/**
+ * Accept a password policy as either a structured object or a JSON string
+ * (per Task 6: a policy "may be represented in any suitable format, such as
+ * text, JSON, or another structured representation") and return a normalized
+ * policy.
+ */
+export function parsePasswordPolicy(input: PasswordPolicy | string): PasswordPolicy {
+  if (typeof input === 'string') {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(input);
+    } catch {
+      throw new Error('Password policy string is not valid JSON.');
+    }
+    if (!parsed || typeof parsed !== 'object') {
+      throw new Error('Password policy JSON must describe an object.');
+    }
+    return normalizePasswordPolicy(parsed as Partial<PasswordPolicy>);
+  }
+  return normalizePasswordPolicy(input);
+}
+
+/**
+ * Deterministic password encoder: Password_i = Encode(vinfo, Counter, Policy).
+ *
+ * `counter` is a stable rotation index chosen by the caller. Rotating to a new
+ * password means incrementing `counter`. To satisfy awkward policies (e.g. a
+ * forbidden username substring) the encoder deterministically resamples
+ * *within* a fixed counter using an internal attempt index, so the returned
+ * counter always equals the requested one and register/login reproduce exactly
+ * the same password for the same inputs.
+ */
 export async function encodeSecretAsPassword(
   secretB64: string,
-  rawPolicy: PasswordPolicy,
+  rawPolicy: PasswordPolicy | string,
   accountId?: string,
   counter = 0,
 ): Promise<EncodedPasswordResult> {
-  const policy = normalizePasswordPolicy(rawPolicy);
+  const policy = parsePasswordPolicy(rawPolicy);
   const required = requiredCharsets(policy);
   if (required.length > policy.maxLen) {
     throw new Error('Password policy is impossible: more required classes than maximum length.');
@@ -181,14 +213,16 @@ export async function encodeSecretAsPassword(
   if (!pool) throw new Error('Password policy is impossible: no allowed character set.');
 
   const length = Math.min(policy.maxLen, Math.max(policy.minLen, Math.min(32, policy.maxLen), required.length));
+  const accountKey = accountId?.trim().toLowerCase() ?? '';
+
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-    const candidateCounter = counter + attempt;
     const seed = [
-      'upspa-password-encoding-v1',
+      'upspa-password-encoding-v2',
       secretB64,
       canonicalPolicy(policy),
-      accountId?.trim().toLowerCase() ?? '',
-      String(candidateCounter),
+      accountKey,
+      `ctr=${counter}`,
+      `try=${attempt}`,
     ].join('|');
     const bytes = await expandBytes(seed, length * 2 + required.length);
     const chars: string[] = [];
@@ -204,7 +238,7 @@ export async function encodeSecretAsPassword(
     if (passwordSatisfiesPolicy(password, policy, accountId)) {
       return {
         password,
-        counter: candidateCounter,
+        counter,
       };
     }
   }

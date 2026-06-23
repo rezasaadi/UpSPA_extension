@@ -88,3 +88,54 @@ describe('password policy encoding', () => {
     await expect(encodeSecretAsPassword(SECRET, policy, 'alice')).rejects.toThrow(/Could not encode/);
   });
 });
+
+describe('deterministic encoder (Task 6 guarantees)', () => {
+  test('returned counter equals the requested counter (stable rotation index)', async () => {
+    const policy = normalizePasswordPolicy({ minLen: 12, maxLen: 20 });
+    const out = await encodeSecretAsPassword(SECRET, policy, 'alice', 7);
+    expect(out.counter).toBe(7);
+  });
+
+  test('same counter reproduces the same password (register == login)', async () => {
+    const policy = defaultPasswordPolicy();
+    const reg = await encodeSecretAsPassword(SECRET, policy, 'alice@example.com', 5);
+    const login = await encodeSecretAsPassword(SECRET, policy, 'alice@example.com', reg.counter);
+    expect(login.password).toBe(reg.password);
+  });
+
+  test('accepts a JSON-string policy identically to the object form', async () => {
+    const obj = normalizePasswordPolicy({ minLen: 12, maxLen: 24 });
+    const json = JSON.stringify(obj);
+    const fromJson = await encodeSecretAsPassword(SECRET, json, 'alice', 0);
+    const fromObj = await encodeSecretAsPassword(SECRET, obj, 'alice', 0);
+    expect(fromJson.password).toBe(fromObj.password);
+    expect(passwordSatisfiesPolicy(fromJson.password, obj, 'alice')).toBe(true);
+  });
+
+  test('invalid JSON policy throws a clean error', async () => {
+    await expect(encodeSecretAsPassword(SECRET, '{not valid', 'alice', 0)).rejects.toThrow(/not valid JSON/);
+  });
+
+  test('fixed-length policy (min == max) yields exact length', async () => {
+    const policy = normalizePasswordPolicy({ minLen: 16, maxLen: 16 });
+    const out = await encodeSecretAsPassword(SECRET, policy, 'alice', 0);
+    expect(out.password.length).toBe(16);
+    expect(passwordSatisfiesPolicy(out.password, policy, 'alice')).toBe(true);
+  });
+
+  test('honours a restricted allowed-symbol set', async () => {
+    const policy = normalizePasswordPolicy({
+      minLen: 16,
+      maxLen: 20,
+      requireSymbol: true,
+      allowedSymbols: '-_.',
+    });
+    const out = await encodeSecretAsPassword(SECRET, policy, 'alice', 0);
+    for (const ch of out.password) {
+      if (!/[A-Za-z0-9]/.test(ch)) {
+        expect('-_.'.includes(ch)).toBe(true);
+      }
+    }
+    expect(passwordSatisfiesPolicy(out.password, policy, 'alice')).toBe(true);
+  });
+});
