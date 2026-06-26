@@ -108,7 +108,9 @@ export async function prepareSecretUpdateForSite(
     suids: out.suids,
   };
 }
-export async function commitSecretUpdateForSite(prepared: PreparedSecretUpdate): Promise<void> {
+export async function commitSecretUpdateForSite(
+  prepared: Pick<PreparedSecretUpdate, 'uid' | 'cjNew' | 'suids'>,
+): Promise<void> {
   const client = await makeUpspaClient(prepared.uid);
   await client.applySecretUpdateToSPs(prepared.suids, prepared.cjNew);
 }
