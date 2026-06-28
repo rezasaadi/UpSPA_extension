@@ -34,7 +34,9 @@ import {
 } from '../shared/autofillCache';
 import {
   authenticateForSite,
+  commitRegistrationForSite,
   commitSecretUpdateForSite,
+  prepareRegistrationForSite,
   prepareSecretUpdateForSite,
   registerForSite,
   type PreparedSecretUpdate,
@@ -333,21 +335,28 @@ async function runPopupAction(action: () => Promise<string>): Promise<void> {
 registerButton.addEventListener('click', () => {
   void runPopupAction(async () => {
     const { accountId, masterPassword, lsj } = readInputs();
-    const rawPasswordForLs = await registerForSite(lsj, masterPassword);
+    const prepared = await prepareRegistrationForSite(lsj, masterPassword);
     const policy = readPolicy();
-    const encoded = await encodeSecretAsPassword(rawPasswordForLs, policy, accountId, currentEncoderCounter);
+const encoded = await encodeSecretAsPassword(
+  prepared.passwordForLs,
+  policy,
+  accountId,
+  currentEncoderCounter,
+);
     renderPolicy(policy, policyEvidence, encoded.counter);
     const response = await fillOrThrow({
       type: 'UPSPA_FILL_REGISTER',
       payload: { accountId, passwordForLs: encoded.password },
     });
     pendingRegistration = {
-      origin: activeOrigin,
-      accountId,
-      passwordPolicy: policy,
-      encoderCounter: encoded.counter,
-      createdAt: Date.now(),
-    };
+  origin: activeOrigin,
+  accountId,
+  passwordPolicy: policy,
+  encoderCounter: encoded.counter,
+  createdAt: Date.now(),
+  uid: prepared.uid,
+  records: prepared.records,
+};
     await savePendingRegistration(pendingRegistration);
     return `Registration value filled (${describeFilled(response)}). Submit the website form manually. After the website confirms registration, click Confirm Registration Success.`;
   });
@@ -364,6 +373,10 @@ confirmRegistrationButton.addEventListener('click', () => {
         setStatus('Pending registration belongs to a different website origin.', 'error');
         return;
       }
+      await commitRegistrationForSite({
+  uid: pendingRegistration.uid,
+  records: pendingRegistration.records,
+});
       await upsertAccountForOrigin(pendingRegistration.origin, {
         accountId: pendingRegistration.accountId,
         createdAt: Math.floor(Date.now() / 1000),
