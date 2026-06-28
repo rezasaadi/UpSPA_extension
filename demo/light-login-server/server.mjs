@@ -311,10 +311,12 @@ async function handleSecretUpdate(req, res) {
      <p><a href="/login">Login again</a></p>`
   );
 }
+
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url || "/", `http://${req.headers.host}`);
-        if (req.method === "OPTIONS" && url.pathname === "/upspa/registration-status") {
+
+    if (req.method === "OPTIONS" && url.pathname === "/upspa/registration-status") {
       return sendJson(res, 204, {});
     }
 
@@ -326,30 +328,22 @@ const server = createServer(async (req, res) => {
         registered: Boolean(accountId && users.has(accountId)),
       });
     }
-        if (req.method === "OPTIONS" && url.pathname === "/upspa/registration-status") {
-      return sendJson(res, 204, {});
-    }
 
-    if (req.method === "GET" && url.pathname === "/upspa/registration-status") {
-      const accountId = String(url.searchParams.get("account_id") || "").trim();
-
-      return sendJson(res, 200, {
-        account_id: accountId,
-        registered: Boolean(accountId && users.has(accountId)),
-      });
-    }
     if (req.method === "GET" && url.pathname === "/") return homePage(res);
     if (req.method === "GET" && url.pathname === "/register") return registerPage(res);
     if (req.method === "GET" && url.pathname === "/login") return loginPage(res);
     if (req.method === "GET" && url.pathname === "/secret-update") return secretUpdatePage(res);
+
     if (req.method === "POST" && url.pathname === "/register") return await handleRegister(req, res);
     if (req.method === "POST" && url.pathname === "/login") return await handleLogin(req, res);
     if (req.method === "POST" && url.pathname === "/secret-update") return await handleSecretUpdate(req, res);
+
     sendHtml(res, 404, "Not found", "<h1>404</h1>");
   } catch (e) {
     sendHtml(res, 500, "Server error", `<h1>500</h1><pre>${escapeHtml(e?.stack || e)}</pre>`);
   }
 });
+
 server.listen(PORT, () => {
   console.log(`Light login server running at http://localhost:${PORT}`);
 });
