@@ -393,6 +393,26 @@ async function checkRegistrationConfirmed(origin: string, accountId: string): Pr
   }
 }
 
+function stopRegistrationConfirmationPolling(): void {
+  if (registrationPollingTimer !== undefined) {
+    window.clearInterval(registrationPollingTimer);
+    registrationPollingTimer = undefined;
+  }
+}
+
+async function clearActivePendingRegistration(message?: string): Promise<void> {
+  stopRegistrationConfirmationPolling();
+
+  pendingRegistration = undefined;
+  await clearPendingRegistration();
+
+  setBusy(false);
+
+  if (message) {
+    setStatus(message);
+  }
+}
+
 async function commitPendingRegistration(pending: PendingRegistration): Promise<void> {
   if (registrationCommitInFlight) return;
 
@@ -415,11 +435,7 @@ async function commitPendingRegistration(pending: PendingRegistration): Promise<
 
     pendingRegistration = undefined;
     await clearPendingRegistration();
-
-    if (registrationPollingTimer !== undefined) {
-      window.clearInterval(registrationPollingTimer);
-      registrationPollingTimer = undefined;
-    }
+    stopRegistrationConfirmationPolling();
 
     setBusy(false);
     setStatus('Registration automatically confirmed and committed to Storage Providers.');
@@ -436,7 +452,31 @@ async function tryAutoConfirmRegistration(): Promise<void> {
 
   pendingRegistration = pending;
 
+  const currentAccountId = (accountIdEl.value.trim() || accountSelectEl.value).trim();
+
+  if (currentAccountId && currentAccountId !== pending.accountId) {
+    await clearActivePendingRegistration(
+      'Pending registration cleared because the account ID was changed.',
+    );
+    return;
+  }
+
   const confirmed = await checkRegistrationConfirmed(pending.origin, pending.accountId);
+
+  // The user may have changed the account ID while the fetch above was in progress.
+  // In that case, do not let the old polling request overwrite the cleared status.
+  const latestAccountId = (accountIdEl.value.trim() || accountSelectEl.value).trim();
+
+  if (!pendingRegistration || pendingRegistration.accountId !== pending.accountId) {
+    return;
+  }
+
+  if (latestAccountId && latestAccountId !== pending.accountId) {
+    await clearActivePendingRegistration(
+      'Pending registration cleared because the account ID was changed.',
+    );
+    return;
+  }
 
   if (!confirmed) {
     setStatus('Registration pending — waiting for login server confirmation.');
@@ -463,6 +503,10 @@ function startRegistrationConfirmationPolling(): void {
 registerButton.addEventListener('click', () => {
   void runPopupAction(async () => {
     const { accountId, masterPassword, lsj } = readInputs();
+
+    if (pendingRegistration && pendingRegistration.origin === activeOrigin) {
+      await clearActivePendingRegistration();
+    }
 
     const prepared = await prepareRegistrationForSite(lsj, masterPassword);
     const policy = readPolicy();
@@ -522,11 +566,46 @@ confirmRegistrationButton.addEventListener('click', () => {
 });
 
 accountSelectEl.addEventListener('change', () => {
-  accountIdEl.value = accountSelectEl.value;
+  void (async () => {
+    const nextAccountId = accountSelectEl.value;
+    accountIdEl.value = nextAccountId;
 
-  const account = selectedAccount();
+    const account = selectedAccount();
 
-  renderPolicy(account?.passwordPolicy ?? defaultPasswordPolicy(), policyEvidence, account?.encoderCounter ?? 0);
+    if (
+      pendingRegistration &&
+      pendingRegistration.origin === activeOrigin &&
+      nextAccountId &&
+      nextAccountId !== pendingRegistration.accountId
+    ) {
+      await clearActivePendingRegistration(
+        'Pending registration cleared because a different account was selected.',
+      );
+    }
+
+    renderPolicy(
+      account?.passwordPolicy ?? defaultPasswordPolicy(),
+      policyEvidence,
+      account?.encoderCounter ?? 0,
+    );
+  })();
+});
+
+accountIdEl.addEventListener('input', () => {
+  void (async () => {
+    const nextAccountId = accountIdEl.value.trim();
+
+    if (
+      pendingRegistration &&
+      pendingRegistration.origin === activeOrigin &&
+      nextAccountId &&
+      nextAccountId !== pendingRegistration.accountId
+    ) {
+      await clearActivePendingRegistration(
+        'Pending registration cleared because the account ID was changed.',
+      );
+    }
+  })();
 });
 
 detectPolicyButton.addEventListener('click', () => {
@@ -563,6 +642,16 @@ saveAccountButton.addEventListener('click', () => {
 
       if (!nextAccountId) throw new Error('Account id is empty.');
 
+      if (
+        pendingRegistration &&
+        pendingRegistration.origin === activeOrigin &&
+        nextAccountId !== pendingRegistration.accountId
+      ) {
+        await clearActivePendingRegistration(
+          'Pending registration cleared because the account ID was changed.',
+        );
+      }
+
       const selectedAccountId = accountSelectEl.value;
 
       if (selectedAccountId && selectedAccountId !== nextAccountId) {
@@ -593,6 +682,13 @@ deleteAccountButton.addEventListener('click', () => {
       if (!accountId) throw new Error('No account selected.');
 
       await removeAccountForOrigin(activeOrigin, accountId);
+
+      if (pendingRegistration && pendingRegistration.origin === activeOrigin) {
+        await clearActivePendingRegistration(
+          'Pending registration cleared while deleting an account.',
+        );
+      }
+
       await loadAccounts();
 
       const sessionCache = await loadAutofillCacheFromSession();
@@ -736,6 +832,8 @@ cancelUpdateButton.addEventListener('click', () => {
 lockSessionButton.addEventListener('click', () => {
   void (async () => {
     await clearPendingSecretUpdate();
+    stopRegistrationConfirmationPolling();
+    pendingRegistration = undefined;
     await clearPendingRegistration();
     await clearAutofillCache();
     await clearSession();
