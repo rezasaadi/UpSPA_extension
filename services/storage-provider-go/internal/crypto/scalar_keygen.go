@@ -8,11 +8,9 @@
 // scalar_keygen.go — make a fresh random secret share (k_i) for a user on this SP.
 
 package crypto
-
 import (
 	"crypto/rand"
 	"fmt"
-
 	"github.com/gtank/ristretto255"
 )
 

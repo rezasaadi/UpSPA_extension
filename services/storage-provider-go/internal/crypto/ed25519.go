@@ -8,7 +8,6 @@
 // ed25519.go — verifying Ed25519 signatures (used to authorize password updates).
 
 package crypto
-
 import (
 	"crypto/ed25519"
 	"fmt"

@@ -1,13 +1,10 @@
 package api
-
 import (
 	"math"
 	"net/http"
-
 	spcrypto "upspa/internal/crypto"
 	"upspa/internal/model"
 )
-
 func (h *Handler) PasswordUpdate(w http.ResponseWriter, r *http.Request) {
 	var req model.PasswordUpdateRequest
 	if err := ReadJSON(w, r, &req); err != nil {
@@ -22,7 +19,6 @@ func (h *Handler) PasswordUpdate(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusBadRequest, "invalid_timestamp", "timestamp too large", nil)
 		return
 	}
-
 	_, uidCanon, err := decodeCanonicalNonEmpty(req.UIDB64)
 	if err != nil {
 		badField(w, "invalid_uid", "uid_b64")
@@ -43,7 +39,6 @@ func (h *Handler) PasswordUpdate(w http.ResponseWriter, r *http.Request) {
 		badField(w, "invalid_k_i_new", "k_i_new_b64")
 		return
 	}
-
 	sigPkB64, _, _, _, _, lastTs, found, err := h.store.GetSetup(r.Context(), uidCanon)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
@@ -62,13 +57,11 @@ func (h *Handler) PasswordUpdate(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, "stored_invalid_sig_pk", "stored public key is invalid", nil)
 		return
 	}
-
 	msg := spcrypto.BuildPwdUpdateSigMsg(cidNonceRaw, cidCtRaw, cidTagRaw, kINewRaw, req.Timestamp, req.SpID)
 	if !spcrypto.VerifyEd25519(sigPkRaw, msg, sigRaw) {
 		WriteError(w, http.StatusUnauthorized, "invalid_signature", "invalid password update signature", nil)
 		return
 	}
-
 	applied, err := h.store.ApplyPasswordUpdate(r.Context(), uidCanon, int64(req.Timestamp), cidCanon.Nonce, cidCanon.Ct, cidCanon.Tag, kINewCanon)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)

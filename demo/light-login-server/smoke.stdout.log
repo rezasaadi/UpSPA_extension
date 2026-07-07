@@ -1,0 +1,10 @@
+Light login server running at http://localhost:64750
+[LS secret-update] accountId = alice
+[LS secret-update] account exists = true
+[LS secret-update] oldPassword length = 10
+[LS secret-update] newPassword length = 10
+[LS secret-update] success for accountId = alice
+[LS secret-update] accountId = alice
+[LS secret-update] account exists = true
+[LS secret-update] oldPassword length = 10
+[LS secret-update] newPassword length = 14

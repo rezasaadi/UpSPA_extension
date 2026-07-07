@@ -1,5 +1,4 @@
 package api
-
 import (
 	"encoding/json"
 	"errors"
@@ -15,7 +14,6 @@ func WriteJSON(w http.ResponseWriter, status int, data any) error {
 	if data == nil {
 		return nil
 	}
-
 	return json.NewEncoder(w).Encode(data)
 }
 func WriteError(w http.ResponseWriter, status int, code string, message string, details map[string]any) {
@@ -28,7 +26,6 @@ func WriteError(w http.ResponseWriter, status int, code string, message string, 
 	}
 	WriteJSON(w, status, errResp)
 }
-
 func ReadJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 	contentType := r.Header.Get("Content-Type")
 	if contentType != "" {
@@ -48,6 +45,5 @@ func ReadJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 	if err != io.EOF {
 		return errors.New("body must only contain a single JSON object")
 	}
-
 	return nil
 }

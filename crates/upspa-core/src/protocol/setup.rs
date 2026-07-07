@@ -1,10 +1,10 @@
-use ed25519_dalek::SigningKey;
-use rand_core::{CryptoRng, RngCore};
-use serde::{Deserialize, Serialize};
 use crate::aead::xchacha_encrypt_detached;
 use crate::hash::{hash_to_point, oprf_finalize};
 use crate::protocol::{cipherid_aad, CipherId, CIPHERID_PT_LEN};
 use crate::toprf::toprf_gen;
+use ed25519_dalek::SigningKey;
+use rand_core::{CryptoRng, RngCore};
+use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SetupSpPayload {
     pub sp_id: u32,
@@ -38,20 +38,14 @@ pub fn client_setup<R: RngCore + CryptoRng>(
     let p = hash_to_point(password);
     let y = p * master_sk;
     let state_key: [u8; 32] = oprf_finalize(password, &y);
-
     let mut pt = [0u8; CIPHERID_PT_LEN];
     pt[0..32].copy_from_slice(&ssk_bytes);
     pt[32..64].copy_from_slice(&rsp);
     pt[64..96].copy_from_slice(&k0);
-
     let aad = cipherid_aad(uid);
     let cid = xchacha_encrypt_detached(&state_key, &aad, &pt, rng);
-
-    let shares_bytes: Vec<(u32, [u8; 32])> = shares
-        .iter()
-        .map(|(id, s)| (*id, s.to_bytes()))
-        .collect();
-
+    let shares_bytes: Vec<(u32, [u8; 32])> =
+        shares.iter().map(|(id, s)| (*id, s.to_bytes())).collect();
     let out = SetupOutput {
         sig_pk,
         cid: cid.clone(),
@@ -67,6 +61,5 @@ pub fn client_setup<R: RngCore + CryptoRng>(
             k_i: *share_bytes,
         })
         .collect();
-
     (out, payloads)
 }

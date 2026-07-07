@@ -1,6 +1,5 @@
 import { UpspaClient, type CtBlobB64 } from 'upspa-js';
 import { getConfig, setConfig, type UpspaConfig, type SpConfig } from './config';
-
 export type PreparedSecretUpdate = {
   uid: string;
   oldForLs: string;
@@ -8,7 +7,6 @@ export type PreparedSecretUpdate = {
   cjNew: CtBlobB64;
   suids: Array<{ sp_id: number; suid: string }>;
 };
-
 function requireConfig(cfg: UpspaConfig): Required<UpspaConfig> {
   if (!cfg.enabled) throw new Error('UpSPA is disabled.');
   if (!cfg.uid) throw new Error('UpSPA uid is empty. Open extension options.');
@@ -18,13 +16,11 @@ function requireConfig(cfg: UpspaConfig): Required<UpspaConfig> {
   }
   return cfg as Required<UpspaConfig>;
 }
-
 function resolveClientUid(cfg: Required<UpspaConfig>, uidOverride?: string): string {
   const uid = (uidOverride ?? cfg.uid).trim();
   if (!uid) throw new Error('UpSPA uid is empty.');
   return uid;
 }
-
 function validateSetupInput(input: {
   uid: string;
   password: string;
@@ -38,7 +34,6 @@ function validateSetupInput(input: {
     throw new Error('Invalid threshold.');
   }
 }
-
 export async function makeUpspaClient(uidOverride?: string): Promise<UpspaClient> {
   const cfg = requireConfig(await getConfig());
   const client = new UpspaClient({
@@ -49,7 +44,6 @@ export async function makeUpspaClient(uidOverride?: string): Promise<UpspaClient
   await client.init();
   return client;
 }
-
 export async function saveDemoConfig(input: {
   uid: string;
   threshold: number;
@@ -60,7 +54,6 @@ export async function saveDemoConfig(input: {
   if (!Number.isInteger(input.threshold) || input.threshold < 1 || input.threshold > input.sps.length) {
     throw new Error('Invalid threshold.');
   }
-
   await setConfig({
     enabled: true,
     uid: input.uid.trim(),
@@ -68,7 +61,6 @@ export async function saveDemoConfig(input: {
     sps: input.sps,
   });
 }
-
 export async function setupAndProvision(input: {
   uid: string;
   password: string;
@@ -76,51 +68,38 @@ export async function setupAndProvision(input: {
   sps: SpConfig[];
 }): Promise<void> {
   validateSetupInput(input);
-
   const uid = input.uid.trim();
-
   await saveDemoConfig({
     uid,
     threshold: input.threshold,
     sps: input.sps,
   });
-
   const client = new UpspaClient({
     uid,
     threshold: input.threshold,
     sps: input.sps,
   });
-
   await client.init();
   await client.setupAndProvision(input.password, input.threshold);
 }
-
 export async function registerForSite(lsj: string, password: string, uid?: string): Promise<string> {
   const client = await makeUpspaClient(uid);
   const out = await client.register(lsj, password);
   return out.to_ls.vinfo;
 }
-
 export async function authenticateForSite(lsj: string, password: string, uid?: string): Promise<string> {
   const client = await makeUpspaClient(uid);
   const out = await client.authenticate(lsj, password);
   return out.vinfo_prime;
 }
-
-/**
- * Prepare LS-specific secret update.
- * Does NOT commit to SPs yet.
- */
 export async function prepareSecretUpdateForSite(
   lsj: string,
   masterPassword: string,
   uid?: string,
 ): Promise<PreparedSecretUpdate> {
   if (!masterPassword) throw new Error('Master password is empty.');
-
   const client = await makeUpspaClient(uid);
   const out = await client.secretUpdate(lsj, masterPassword);
-
   return {
     uid: client.uid,
     oldForLs: out.vinfo_prime,
@@ -129,20 +108,12 @@ export async function prepareSecretUpdateForSite(
     suids: out.suids,
   };
 }
-
-/**
- * Commit LS-specific secret update to SPs after LS success.
- */
-export async function commitSecretUpdateForSite(prepared: PreparedSecretUpdate): Promise<void> {
+export async function commitSecretUpdateForSite(
+  prepared: Pick<PreparedSecretUpdate, 'uid' | 'cjNew' | 'suids'>,
+): Promise<void> {
   const client = await makeUpspaClient(prepared.uid);
   await client.applySecretUpdateToSPs(prepared.suids, prepared.cjNew);
 }
-
-/**
- * Backward-compatible helper for the current demo.
- * It only prepares and returns old/new LS values.
- * It intentionally does NOT commit.
- */
 export async function secretUpdateForSite(
   lsj: string,
   oldPassword: string,
@@ -154,16 +125,13 @@ export async function secretUpdateForSite(
     newForLs: prepared.newForLs,
   };
 }
-
 export async function passwordUpdateDirect(
   oldPassword: string,
   newPassword: string,
 ): Promise<void> {
   if (!oldPassword) throw new Error('Old password is empty.');
   if (!newPassword) throw new Error('New password is empty.');
-
   const client = await makeUpspaClient();
   const timestamp = Math.floor(Date.now() / 1000);
-
   await client.passwordUpdate(oldPassword, newPassword, timestamp);
 }

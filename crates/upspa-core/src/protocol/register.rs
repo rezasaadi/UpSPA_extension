@@ -1,6 +1,5 @@
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
-
 use crate::aead::xchacha_encrypt_detached;
 use crate::hash::{hash_suid, hash_vinfo};
 use crate::protocol::{ciphersp_aad, decrypt_cid, CipherId, CipherSp, CIPHERSP_PT_LEN};
@@ -16,7 +15,6 @@ pub struct RegistrationLsMessage {
     pub uid: Vec<u8>,
     pub vinfo: [u8; 32],
 }
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RegistrationOutput {
     pub per_sp: Vec<RegistrationSpMessage>,
@@ -51,11 +49,9 @@ pub fn client_register<R: RngCore + CryptoRng>(
             cj: cj.clone(),
         });
     }
-
     let to_ls = RegistrationLsMessage {
         uid: uid.to_vec(),
         vinfo,
     };
-
     Ok(RegistrationOutput { per_sp, to_ls })
 }

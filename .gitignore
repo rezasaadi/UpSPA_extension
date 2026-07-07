@@ -1,24 +1,12 @@
-# Rust
-target/
+/target/
+**/target/
 
-# Node
 node_modules/
-dist/
+**/node_modules/
 
-# WASM build outputs
+dist/
+**/dist/
+
 packages/upspa-js/wasm-pkg/
 
-# Coverage
-coverage/
-
-# IDE
-.vscode/
-.idea/
-
-# OS
 .DS_Store
-Thumbs.db
-
-# Env
-.env
-.env.*

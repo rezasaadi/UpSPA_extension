@@ -13,7 +13,6 @@ package crypto
 import (
 	"errors"
 	"fmt"
-
 	"github.com/gtank/ristretto255"
 )
 

@@ -1,5 +1,4 @@
 package api
-
 import (
 	"net/http"
 )
@@ -16,7 +15,6 @@ func NewRouter(h *Handler) http.Handler {
 	mux.HandleFunc("POST /v1/password-update", h.PasswordUpdate)
 	return withCORS(mux)
 }
-
 func handleHealth(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
