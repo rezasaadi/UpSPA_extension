@@ -1,35 +1,22 @@
-// SetupGet fetches the stored setup material.
-// - Read: docs/apis.md and docs/openapi/sp.yaml (wire contract)
-
 package api
-
 import (
 	"net/http"
+	"upspa/internal/model"
 )
-
-// SetupGet handles GET /v1/setup/{uid_b64}
 func (h *Handler) SetupGet(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method Not Allowed", nil)
-		return
-	}
-
-	// Validate parameter format
-	uidB64 := r.PathValue("uid_b64")
-	if err := validateBase64URLNoPad(uidB64, 32); err != nil {
-		WriteError(w, http.StatusBadRequest, "invalid_uid", "Bad Request: Invalid uid format or length", nil)
-		return
-	}
-
-	resp, err := h.store.GetSetup(r.Context(), uidB64)
+	_, uidCanon, err := decodeCanonicalNonEmpty(r.PathValue("uid_b64"))
 	if err != nil {
-		if err == ErrNotFound {
-			WriteError(w, http.StatusNotFound, "not_found", "User setup not found", nil)
-			return
-		}
-		WriteError(w, http.StatusInternalServerError, "internal_error", "Internal Server Error", nil)
+		badField(w, "invalid_uid", "uid_b64")
 		return
 	}
-
-	WriteJSON(w, http.StatusOK, resp)
+	sigPk, cidNonce, cidCt, cidTag, _, _, found, err := h.store.GetSetup(r.Context(), uidCanon)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+	if !found {
+		WriteError(w, http.StatusNotFound, "not_found", "user setup not found", nil)
+		return
+	}
+	_ = WriteJSON(w, http.StatusOK, model.SetupResponse{UIDB64: uidCanon, SigPkB64: sigPk, CID: model.CtBlob{Nonce: cidNonce, Ct: cidCt, Tag: cidTag}})
 }

@@ -6,12 +6,16 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
+    "prebuild": "test -f wasm-pkg/upspa_wasm.js || (echo \"Missing packages/upspa-js/wasm-pkg. Run: npm run build:wasm\" >&2; exit 1)",
     "build": "tsc -p tsconfig.json",
     "test": "vitest run"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@crxjs/vite-plugin": "1.0.14",
+    "vite": "2.9.18"
+  },
   "devDependencies": {
-    "typescript": "^5.6.3",
-    "vitest": "^2.1.9"
+    "typescript": "5.6.3",
+    "vitest": "2.1.9"
   }
 }

@@ -1,8 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-
 import type { StorageProviderClient } from '../src/spClient.js';
 import { UpspaClient } from '../src/upspaClient.js';
-
 vi.mock('../src/wasm.js', async () => {
   return {
     loadUpspaWasm: async () => ({
@@ -18,13 +16,11 @@ vi.mock('../src/wasm.js', async () => {
           k_i: 'k',
         })),
       }),
-
       toprf_begin: (password: string) => ({ r: 'r', blinded: `blinded(${password})` }),
       toprf_finish: (password: string, r: string, partials: unknown) => {
         const p = partials as Array<{ id: number; y: string }>;
         return `state_key(${password},${r},${p.map((x) => x.id).join(',')})`;
       },
-
       protocol_register: () => ({
         per_sp: [
           { sp_id: 1, suid: 'suid1', cj: { nonce: 'n', ct: 'c', tag: 't' } },
@@ -32,7 +28,6 @@ vi.mock('../src/wasm.js', async () => {
         ],
         to_ls: { uid: 'uid', vinfo: 'vinfo' },
       }),
-
       protocol_auth_prepare: () => ({
         k0: 'k0',
         per_sp: [
@@ -65,7 +60,6 @@ vi.mock('../src/wasm.js', async () => {
     }),
   };
 });
-
 function mkSp(id: number, opts?: { failToprf?: boolean; failCid?: boolean }): StorageProviderClient {
   return {
     id,
@@ -86,7 +80,6 @@ function mkSp(id: number, opts?: { failToprf?: boolean; failCid?: boolean }): St
     passwordUpdate: async () => undefined,
   };
 }
-
 describe('UpspaClient (mocked wasm)', () => {
   it('derives state key with threshold partials', async () => {
     const client = new UpspaClient(
@@ -101,13 +94,11 @@ describe('UpspaClient (mocked wasm)', () => {
       },
       [mkSp(1), mkSp(2), mkSp(3, { failToprf: true })],
     );
-
     const r = await client.deriveStateKey('pw');
     expect(r.state_key_b64).toContain('state_key(pw');
     expect(r.partials.length).toBe(2);
     expect(r.partials.map((p) => p.id)).toEqual([1, 2]);
   });
-
   it('fetches cid from first available SP', async () => {
     const client = new UpspaClient(
       {
@@ -120,17 +111,14 @@ describe('UpspaClient (mocked wasm)', () => {
       },
       [mkSp(1, { failCid: true }), mkSp(2)],
     );
-
     const cid = await client.fetchCid();
     expect(cid.ct).toBe('c');
   });
-
   it('register returns vinfo and writes records', async () => {
     const sp1 = mkSp(1);
     const sp2 = mkSp(2);
     const createSpy1 = vi.spyOn(sp1, 'createRecord');
     const createSpy2 = vi.spyOn(sp2, 'createRecord');
-
     const client = new UpspaClient(
       {
         uid: 'alice',
@@ -142,7 +130,6 @@ describe('UpspaClient (mocked wasm)', () => {
       },
       [sp1, sp2],
     );
-
     const out = await client.register('https://ls.example', 'pw');
     expect(out.to_ls.vinfo).toBe('vinfo');
     expect(createSpy1).toHaveBeenCalledTimes(1);

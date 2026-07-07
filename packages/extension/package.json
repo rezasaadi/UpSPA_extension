@@ -12,10 +12,10 @@
     "upspa-js": "file:../upspa-js"
   },
   "devDependencies": {
-    "@crxjs/vite-plugin": "^2.0.0",
+    "@crxjs/vite-plugin": "^1.0.14",
     "@types/chrome": "^0.0.268",
     "typescript": "^5.6.3",
-    "vite": "^5.4.8",
+    "vite": "2.9.18",
     "vite-plugin-wasm": "^3.5.0"
   }
 }

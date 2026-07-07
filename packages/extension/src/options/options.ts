@@ -1,150 +1,128 @@
-import type { BgResponse } from '../shared/messages';
-import type { ExtensionConfig } from '../shared/config';
-
-async function bg(msg: any): Promise<BgResponse> {
-  return (await chrome.runtime.sendMessage(msg)) as BgResponse;
+import { getConfig } from '../shared/config';
+import type { SpConfig } from '../shared/config';
+import { clearSession, markSessionUsed } from '../shared/session';
+import { passwordUpdateDirect, saveDemoConfig, setupAndProvision } from '../shared/upspaActions';
+const DEFAULT_SP_TEXT = ['1,http://localhost:8081', '2,http://localhost:8082', '3,http://localhost:8083'].join('\n');
+const uidEl = document.getElementById('uid') as HTMLInputElement;
+const passwordEl = document.getElementById('password') as HTMLInputElement;
+const thresholdEl = document.getElementById('threshold') as HTMLInputElement;
+const spsEl = document.getElementById('sps') as HTMLTextAreaElement;
+const statusEl = document.getElementById('status') as HTMLPreElement;
+const oldPasswordEl = document.getElementById('oldPassword') as HTMLInputElement;
+const newPasswordEl = document.getElementById('newPassword') as HTMLInputElement;
+const newPasswordConfirmEl = document.getElementById('newPasswordConfirm') as HTMLInputElement;
+function setStatus(msg: string): void {
+  statusEl.textContent = msg;
 }
-
-function setMsg(text: string, kind: 'ok' | 'err' | 'info' = 'info') {
-  const el = document.getElementById('msg')!;
-  el.className = `small ${kind === 'ok' ? 'ok' : kind === 'err' ? 'err' : ''}`;
-  el.textContent = text;
+function parseSps(): SpConfig[] {
+  return spsEl.value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [idRaw, baseUrlRaw] = line.split(',').map((x) => x.trim());
+      const id = Number(idRaw);
+      if (!Number.isInteger(id) || id < 1) {
+        throw new Error(`Invalid SP id in line: ${line}`);
+      }
+      let url: URL;
+      try {
+        url = new URL(baseUrlRaw);
+      } catch {
+        throw new Error(`Invalid SP URL in line: ${line}`);
+      }
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        throw new Error(`Invalid SP URL in line: ${line}`);
+      }
+      return {
+        id,
+        baseUrl: baseUrlRaw.replace(/\/+$/, ''),
+      };
+    });
 }
-
-function parseConfigFromUi(): ExtensionConfig {
-  const enabled = (document.getElementById('enabled') as HTMLInputElement).checked;
-  const uid = (document.getElementById('uid') as HTMLInputElement).value.trim();
-  const threshold = Number((document.getElementById('threshold') as HTMLInputElement).value);
-
-  const rows = Array.from(document.querySelectorAll('.sp-row')) as HTMLElement[];
-  const sps = rows
-    .map((r) => {
-      const id = Number((r.querySelector('input[data-role="id"]') as HTMLInputElement).value);
-      const baseUrl = (r.querySelector('input[data-role="url"]') as HTMLInputElement).value.trim();
-      return { id, baseUrl };
-    })
-    .filter((sp) => sp.id && sp.baseUrl);
-
-  return { enabled, uid, threshold, sps };
-}
-
-function renderSpList(sps: Array<{ id: number; baseUrl: string }>) {
-  const host = document.getElementById('spList')!;
-  host.innerHTML = '';
-
-  for (const sp of sps) {
-    const row = document.createElement('div');
-    row.className = 'sp-row';
-    row.innerHTML = `
-      <input data-role="id" type="number" min="1" step="1" value="${sp.id}" placeholder="id" />
-      <input data-role="url" value="${sp.baseUrl}" placeholder="https://sp.example.com" />
-      <button type="button" data-role="rm">Remove</button>
-    `;
-    (row.querySelector('[data-role="rm"]') as HTMLButtonElement).onclick = async () => {
-      row.remove();
-      await saveConfig();
-    };
-    for (const inp of Array.from(row.querySelectorAll('input'))) {
-      (inp as HTMLInputElement).addEventListener('change', () => void saveConfig());
-    }
-
-    host.appendChild(row);
+function readConfigInput(): { uid: string; threshold: number; sps: SpConfig[] } {
+  const uid = uidEl.value.trim();
+  const threshold = Number(thresholdEl.value);
+  const sps = parseSps();
+  if (!uid) throw new Error('UID is empty.');
+  if (!Number.isInteger(threshold) || threshold < 1 || threshold > sps.length) {
+    throw new Error('Threshold must be between 1 and number of SPs.');
   }
+  return { uid, threshold, sps };
 }
-
-async function saveConfig(): Promise<void> {
-  const cfg = parseConfigFromUi();
-  const res = await bg({ type: 'UPSRA_SET_CONFIG', cfg });
-  if (!res.ok) {
-    setMsg(res.error, 'err');
+function readSetupInput(): { uid: string; password: string; threshold: number; sps: SpConfig[] } {
+  const input = readConfigInput();
+  const password = passwordEl.value;
+  if (!password) throw new Error('Master password is empty.');
+  return { ...input, password };
+}
+async function loadExisting(): Promise<void> {
+  const cfg = await getConfig();
+  uidEl.value = cfg.uid || '';
+  thresholdEl.value = String(cfg.threshold || 2);
+  if (cfg.sps?.length) {
+    spsEl.value = cfg.sps.map((sp) => `${sp.id},${sp.baseUrl}`).join('\n');
   } else {
-    setMsg('Saved.', 'ok');
+    spsEl.value = DEFAULT_SP_TEXT;
   }
 }
-
-async function loadConfigToUi() {
-  const res = await bg({ type: 'UPSRA_GET_CONFIG' });
-  if (!res.ok) {
-    setMsg(res.error, 'err');
-    return;
+document.getElementById('save')?.addEventListener('click', async () => {
+  try {
+    const input = readConfigInput();
+    await saveDemoConfig({
+      uid: input.uid,
+      threshold: input.threshold,
+      sps: input.sps,
+    });
+    setStatus('Config saved.');
+  } catch (e) {
+    setStatus(`ERROR: ${e instanceof Error ? e.message : String(e)}`);
   }
-  const cfg = (res as any).cfg as ExtensionConfig;
-  (document.getElementById('enabled') as HTMLInputElement).checked = cfg.enabled;
-  (document.getElementById('uid') as HTMLInputElement).value = cfg.uid;
-  (document.getElementById('threshold') as HTMLInputElement).value = String(cfg.threshold);
-  renderSpList(cfg.sps ?? []);
-}
-
-async function runSetup() {
-  const pwd = (document.getElementById('setupPassword') as HTMLInputElement).value;
-  if (!pwd) {
-    setMsg('Master password required for Setup.', 'err');
-    return;
+});
+document.getElementById('setup')?.addEventListener('click', async () => {
+  try {
+    const input = readSetupInput();
+    setStatus('Running setup/provision...');
+    await setupAndProvision(input);
+    await markSessionUsed();
+    passwordEl.value = '';
+    setStatus('Setup/provision completed successfully.');
+  } catch (e) {
+    setStatus(`ERROR: ${e instanceof Error ? e.message : String(e)}`);
   }
-  const cfg = parseConfigFromUi();
-  if (!cfg.uid) {
-    setMsg('UID is required.', 'err');
-    return;
+});
+document.getElementById('passwordUpdate')?.addEventListener('click', async () => {
+  try {
+    const oldPassword = oldPasswordEl.value;
+    const newPassword = newPasswordEl.value;
+    const confirm = newPasswordConfirmEl.value;
+    if (!oldPassword) throw new Error('Old master password is empty.');
+    if (!newPassword) throw new Error('New master password is empty.');
+    if (newPassword !== confirm) throw new Error('New master password fields do not match.');
+    setStatus('Running master password update...');
+    await passwordUpdateDirect(oldPassword, newPassword);
+    await markSessionUsed();
+    oldPasswordEl.value = '';
+    newPasswordEl.value = '';
+    newPasswordConfirmEl.value = '';
+    passwordEl.value = '';
+    setStatus('Master password update completed successfully.');
+  } catch (e) {
+    setStatus(`ERROR: ${e instanceof Error ? e.message : String(e)}`);
   }
-  if (!cfg.sps.length) {
-    setMsg('At least one SP is required.', 'err');
-    return;
+});
+document.getElementById('lockSession')?.addEventListener('click', async () => {
+  try {
+    await clearSession();
+    passwordEl.value = '';
+    oldPasswordEl.value = '';
+    newPasswordEl.value = '';
+    newPasswordConfirmEl.value = '';
+    setStatus('Extension session locked.');
+  } catch (e) {
+    setStatus(`ERROR: ${e instanceof Error ? e.message : String(e)}`);
   }
-  if (!(cfg.threshold >= 1 && cfg.threshold <= cfg.sps.length)) {
-    setMsg('Threshold must be between 1 and number of SPs.', 'err');
-    return;
-  }
-
-  setMsg('Running Setup…');
-  const res = await bg({
-    type: 'UPSRA_SETUP_AND_PROVISION',
-    uid: cfg.uid,
-    password: pwd,
-    threshold: cfg.threshold,
-    sps: cfg.sps,
-  });
-
-  if (!res.ok) {
-    setMsg(`Setup failed: ${res.error}`, 'err');
-    return;
-  }
-  setMsg('Setup successful and SPs provisioned.', 'ok');
-}
-
-async function runPasswordUpdate() {
-  const oldPwd = (document.getElementById('oldPwd') as HTMLInputElement).value;
-  const newPwd = (document.getElementById('newPwd') as HTMLInputElement).value;
-  if (!oldPwd || !newPwd) {
-    setMsg('Old and new passwords are required.', 'err');
-    return;
-  }
-  const ts = Math.floor(Date.now() / 1000);
-  setMsg('Running password update…');
-  const res = await bg({ type: 'UPSRA_PASSWORD_UPDATE', old_password: oldPwd, new_password: newPwd, timestamp: ts });
-  if (!res.ok) {
-    setMsg(`Password update failed: ${res.error}`, 'err');
-    return;
-  }
-  setMsg('Password update applied (at least threshold SPs).', 'ok');
-}
-
-async function main() {
-  await loadConfigToUi();
-
-  (document.getElementById('enabled') as HTMLInputElement).addEventListener('change', () => void saveConfig());
-  (document.getElementById('uid') as HTMLInputElement).addEventListener('change', () => void saveConfig());
-  (document.getElementById('threshold') as HTMLInputElement).addEventListener('change', () => void saveConfig());
-
-  (document.getElementById('addSp') as HTMLButtonElement).onclick = async () => {
-    const cfg = parseConfigFromUi();
-    const nextId = (cfg.sps.map((s) => s.id).reduce((a, b) => Math.max(a, b), 0) || 0) + 1;
-    cfg.sps.push({ id: nextId, baseUrl: '' });
-    renderSpList(cfg.sps);
-    await saveConfig();
-  };
-
-  (document.getElementById('runSetup') as HTMLButtonElement).onclick = () => void runSetup();
-  (document.getElementById('runPwdUpdate') as HTMLButtonElement).onclick = () => void runPasswordUpdate();
-}
-
-main().catch((e) => setMsg(String(e), 'err'));
+});
+loadExisting().catch((e) => {
+  setStatus(`ERROR loading config: ${e instanceof Error ? e.message : String(e)}`);
+});

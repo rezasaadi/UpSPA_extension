@@ -1,0 +1,440 @@
+openapi: 3.0.3
+info:
+  title: Storage Provider API
+  version: 1.0.0
+servers:
+  - url: /v1
+paths:
+  /health:
+    get:
+      summary: Health check
+      operationId: getHealth
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+
+  /setup:
+    post:
+      summary: Provision per-user cryptographic setup material
+      operationId: postSetup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetupRequest'
+      responses:
+        '201':
+          description: Setup created for the first time
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '200':
+          description: Idempotent – setup already existed with identical values
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          description: Invalid base64 encoding or wrong byte lengths
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /setup/{uid_b64}:
+    get:
+      summary: Fetch stored setup material for a user
+      operationId: getSetup
+      parameters:
+        - name: uid_b64
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Setup found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetupResponse'
+        '400':
+          description: Malformed base64 uid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: User setup not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /toprf/eval:
+    post:
+      summary: Evaluate partial TOPRF – compute y_i = blinded * k_i
+      operationId: postToprfEval
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ToprfEvalRequest'
+      responses:
+        '200':
+          description: TOPRF evaluation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToprfEvalResponse'
+        '400':
+          description: Invalid base64 encoding, wrong byte length, or invalid Ristretto point
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: User setup not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /records:
+    post:
+      summary: Create a per-LS encrypted record
+      operationId: postRecord
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordCreateRequest'
+      responses:
+        '201':
+          description: Record created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          description: Invalid base64 encoding or wrong byte lengths
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Record already exists for this suid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /records/{suid_b64}:
+    get:
+      summary: Fetch a per-LS encrypted record
+      operationId: getRecord
+      parameters:
+        - name: suid_b64
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Record found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecordResponse'
+        '400':
+          description: Malformed base64 suid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Record not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      summary: Replace a per-LS encrypted record
+      operationId: putRecord
+      parameters:
+        - name: suid_b64
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordUpdateRequest'
+      responses:
+        '200':
+          description: Record updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          description: Invalid base64 encoding or wrong byte lengths
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Record not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      summary: Delete a per-LS encrypted record
+      operationId: deleteRecord
+      parameters:
+        - name: suid_b64
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Record deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          description: Malformed base64 suid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Record not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /password-update:
+    post:
+      summary: Apply a master password update for this SP
+      operationId: postPasswordUpdate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordUpdateRequest'
+      responses:
+        '200':
+          description: Password update applied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          description: Invalid fields or sp_id mismatch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Ed25519 signature verification failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: User setup not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Stale timestamp – replay rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    OkResponse:
+      type: object
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+
+    ErrorDetail:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorDetail'
+
+    CtBlob:
+      type: object
+      required:
+        - nonce
+        - ct
+        - tag
+      properties:
+        nonce:
+          type: string
+          description: Base64url-no-pad encoded 24-byte nonce
+        ct:
+          type: string
+          description: Base64url-no-pad encoded ciphertext
+        tag:
+          type: string
+          description: Base64url-no-pad encoded 16-byte authentication tag
+
+    SetupRequest:
+      type: object
+      required:
+        - uid_b64
+        - sig_pk_b64
+        - cid
+        - k_i_b64
+      properties:
+        uid_b64:
+          type: string
+          description: Base64url-no-pad encoded user identifier
+        sig_pk_b64:
+          type: string
+          description: Base64url-no-pad encoded Ed25519 verifying key (32 bytes)
+        cid:
+          $ref: '#/components/schemas/CtBlob'
+        k_i_b64:
+          type: string
+          description: Base64url-no-pad encoded TOPRF scalar share (32 bytes)
+
+    SetupResponse:
+      type: object
+      required:
+        - uid_b64
+        - sig_pk_b64
+        - cid
+      properties:
+        uid_b64:
+          type: string
+        sig_pk_b64:
+          type: string
+        cid:
+          $ref: '#/components/schemas/CtBlob'
+
+    ToprfEvalRequest:
+      type: object
+      required:
+        - uid_b64
+        - blinded_b64
+      properties:
+        uid_b64:
+          type: string
+          description: Base64url-no-pad encoded user identifier
+        blinded_b64:
+          type: string
+          description: Base64url-no-pad encoded Ristretto255 point (32 bytes)
+
+    ToprfEvalResponse:
+      type: object
+      required:
+        - sp_id
+        - y_b64
+      properties:
+        sp_id:
+          type: integer
+          description: This storage provider's numeric identifier
+        y_b64:
+          type: string
+          description: Base64url-no-pad encoded TOPRF partial result (32 bytes)
+
+    RecordCreateRequest:
+      type: object
+      required:
+        - suid_b64
+        - cj
+      properties:
+        suid_b64:
+          type: string
+          description: Base64url-no-pad encoded site-specific user identifier (32 bytes)
+        cj:
+          $ref: '#/components/schemas/CtBlob'
+
+    RecordUpdateRequest:
+      type: object
+      required:
+        - cj
+      properties:
+        cj:
+          $ref: '#/components/schemas/CtBlob'
+
+    RecordResponse:
+      type: object
+      required:
+        - suid_b64
+        - cj
+      properties:
+        suid_b64:
+          type: string
+        cj:
+          $ref: '#/components/schemas/CtBlob'
+
+    PasswordUpdateRequest:
+      type: object
+      required:
+        - uid_b64
+        - sp_id
+        - timestamp
+        - sig_b64
+        - cid_new
+        - k_i_new_b64
+      properties:
+        uid_b64:
+          type: string
+          description: Base64url-no-pad encoded user identifier
+        sp_id:
+          type: integer
+          description: Storage provider identifier (must match this SP's configured ID)
+        timestamp:
+          type: integer
+          description: Monotonically increasing update timestamp (seconds)
+        sig_b64:
+          type: string
+          description: Base64url-no-pad encoded Ed25519 signature (64 bytes)
+        cid_new:
+          $ref: '#/components/schemas/CtBlob'
+        k_i_new_b64:
+          type: string
+          description: Base64url-no-pad encoded new TOPRF scalar share (32 bytes)

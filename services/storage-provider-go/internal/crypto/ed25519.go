@@ -1,26 +1,30 @@
-//1st Week: The underlying cryptology concepts are tried to be skimmed, mostly AI based improved template code written
+// =============================================================================
+// UpSPA - Storage Provider crypto (services/storage-provider-go/internal/crypto)
+// Reviewed and annotated by Efe Bektes (intern, ITU), May 2026.
+// This file: Ed25519 signature verification used to authorize password updates.
+// Change:    comments/annotations only; behaviour unchanged.
+// Reviewed with AI assistance; verified against the crypto test suite before commit.
+// =============================================================================
+// ed25519.go — verifying Ed25519 signatures (used to authorize password updates).
 
 package crypto
-
 import (
 	"crypto/ed25519"
 	"fmt"
 )
 
-// VerifyEd25519 returns true iff sig is a valid Ed25519 signature over msg
-// produced by the key sigPk.
+// VerifyEd25519 checks that a message really was signed by the owner of a public key.
 //
-// sigPk must be LenEd25519PublicKey (32) bytes.
-// sig   must be LenEd25519Signature (64) bytes.
+// Plain version: the public key is like a padlock everyone can see; the signature is
+// proof that someone used the matching private key (which only the real owner has).
+// We return true only if the signature genuinely matches THIS message and THIS key —
+// change one byte of the message, or use the wrong key, and it returns false.
 //
-// The function panics on wrong lengths — callers MUST use DecodeFixedB64 with
-// the correct Len* constants before calling this function.
-//
-// References:
-//   - https://pkg.go.dev/crypto/ed25519
-//   - https://datatracker.ietf.org/doc/html/rfc8032
-//
-// NOTE: do NOT log sigPk, msg, or sig.
+// The key must be exactly 32 bytes and the signature exactly 64 bytes. If they are
+// not, that is a bug in the calling code (it should have length-checked the input
+// first), so we stop loudly with a panic rather than quietly return a verdict on
+// malformed data. The API callers decode and length-check before calling, and the
+// server's recover middleware turns any stray panic into a clean HTTP 500.
 func VerifyEd25519(sigPk []byte, msg []byte, sig []byte) bool {
 	if len(sigPk) != LenEd25519PublicKey {
 		panic(fmt.Sprintf(
@@ -34,5 +38,6 @@ func VerifyEd25519(sigPk []byte, msg []byte, sig []byte) bool {
 			LenEd25519Signature, len(sig),
 		))
 	}
+	// ed25519.Verify does the real cryptographic check, in constant time.
 	return ed25519.Verify(ed25519.PublicKey(sigPk), msg, sig)
 }

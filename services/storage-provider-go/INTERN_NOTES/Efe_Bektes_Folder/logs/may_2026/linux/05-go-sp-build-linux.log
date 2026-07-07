@@ -1,0 +1,22 @@
+UpSPA - Go Storage Provider build on Linux (cloud agent)
+host: Ubuntu 24.04.4, Go 1.22.2, Intel Xeon, 1 vCPU, 3.9 GiB
+========================================================
+
+internal/crypto (Efe's assigned package)
+  cmd:    go test ./internal/crypto/...
+  result: ok  upspa/internal/crypto   (63 PASS, 0 FAIL; see 04-crypto-test-linux.log)
+  deps:   github.com/gtank/ristretto255 only -> compiles cleanly on Linux.
+
+Full service (go build ./...)
+  The full binary additionally links jackc/pgx (PostgreSQL driver), which depends on
+  golang.org/x/{sync,text,crypto}. The sandbox network does not reach the Go module
+  proxy / golang.org; routing those through the github.com/golang mirror instead pins
+  versions whose go.mod now requires Go >= 1.24, while this sandbox has Go 1.22.2.
+  The full-service link was therefore not exercised on Linux. This is a sandbox
+  network/toolchain limitation, not a code issue.
+
+Cross-environment summary for the Go component
+  Windows host (Go 1.26): full Storage Provider builds and runs (Postgres-backed),
+                          exercised end-to-end via the setup script.
+  Linux  (Go 1.22.2):     the assigned internal/crypto package builds and its full
+                          test suite passes (63/63).

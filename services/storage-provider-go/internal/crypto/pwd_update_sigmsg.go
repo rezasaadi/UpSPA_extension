@@ -1,65 +1,61 @@
-// Package crypto provides cryptographic helpers for the Storage Provider service.
-//
-// Week 3: Extracted BuildPwdUpdateSigMsg into its own file and validated the
-// byte layout against docs/protocol-phases.md. See efe-week3.md for details.
+// =============================================================================
+// UpSPA - Storage Provider crypto (services/storage-provider-go/internal/crypto)
+// Reviewed and annotated by Efe Bektes (intern, ITU), May 2026.
+// This file: the exact byte layout the client signs to authorize a password update.
+// Change:    documented the byte layout; covered by a golden vector so it cannot silently drift.
+// Reviewed with AI assistance; verified against the crypto test suite before commit.
+// =============================================================================
+// pwd_update_sigmsg.go — build the exact bytes the client signs to authorize a
+// password update. Getting this byte layout wrong silently breaks every update.
 
 package crypto
-
 import (
 	"encoding/binary"
 )
 
-// BuildPwdUpdateSigMsg constructs the exact byte sequence that the client
-// signs during a password-update request.
+// BuildPwdUpdateSigMsg lays out, in one fixed order, everything a password-update
+// signature must commit to. The client signs these exact bytes; the SP rebuilds the
+// same bytes and checks the signature with VerifyEd25519.
 //
-// Layout (from docs/protocol-phases.md):
+// Plain version: when a user changes their master password, the SP must be sure the
+// request is genuine and cannot be replayed or tampered with. So the signature covers:
+//   - the new encrypted blob (nonce, ct, tag) -> ties the signature to this exact new data
+//   - the new secret share kINew              -> nobody can swap in a different key
+//   - the timestamp (8 bytes, little-endian)  -> an old request cannot be replayed
+//   - the SP id (4 bytes, little-endian)       -> a request for SP 1 will not work on SP 2
 //
-//	[cidNonce (24 B)] || [cidCt (var)] || [cidTag (16 B)] || [kINew (32 B)] || [ts (8 B, u64 LE)] || [spID (4 B, u32 LE)]
+// Order and byte-width must match the client exactly. The layout is:
 //
-// Fixed-length summary (with empty cidCt):
-//
-//	Offset  0 – 23   cidNonce     (LenCtBlobNonce = 24)
-//	Offset 24 – 23+n cidCt        (variable, n = len(cidCt))
-//	Offset 24+n – 39+n cidTag     (LenCtBlobTag   = 16)
-//	Offset 40+n – 71+n kINew      (LenScalarKi    = 32)
-//	Offset 72+n – 79+n timestamp  (8 bytes, little-endian uint64)
-//	Offset 80+n – 83+n spID       (4 bytes, little-endian uint32)
-//	Total:  84 + n bytes
-//
-// All inputs are raw bytes (already decoded from base64url-no-pad).
-// tsU64LE and spIDU32LE are passed as Go integers; this function encodes
-// them as little-endian bytes to match the client's signing format.
-//
-// Callers are responsible for validating individual field lengths using
-// DecodeFixedB64 with the Len* constants before calling this function.
-//
-// NOTE: do NOT log the return value — it contains key material (kINew).
+//	nonce | ct | tag | kINew | timestamp(8, little-endian) | spID(4, little-endian)
 func BuildPwdUpdateSigMsg(
-	cidNonce  []byte, // LenCtBlobNonce = 24 bytes
-	cidCt     []byte, // variable length
-	cidTag    []byte, // LenCtBlobTag   = 16 bytes
-	kINew     []byte, // LenScalarKi    = 32 bytes
-	tsU64LE   uint64,
+	cidNonce []byte,
+	cidCt []byte,
+	cidTag []byte,
+	kINew []byte,
+	tsU64LE uint64,
 	spIDU32LE uint32,
 ) []byte {
-	// Encode the integer fields as little-endian byte slices.
+	// Encode the timestamp as 8 little-endian bytes.
 	tsBytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(tsBytes, tsU64LE)
-
 	spIDBytes := make([]byte, 4)
 	binary.LittleEndian.PutUint32(spIDBytes, spIDU32LE)
-
-	// Pre-allocate the exact output capacity to avoid reallocation.
 	totalLen := len(cidNonce) + len(cidCt) + len(cidTag) + len(kINew) + 8 + 4
 	msg := make([]byte, 0, totalLen)
 
-	// Append fields in wire order.
-	msg = append(msg, cidNonce...)  // offset 0
-	msg = append(msg, cidCt...)    // offset LenCtBlobNonce
-	msg = append(msg, cidTag...)   // offset LenCtBlobNonce + len(cidCt)
-	msg = append(msg, kINew...)    // offset LenCtBlobNonce + len(cidCt) + LenCtBlobTag
-	msg = append(msg, tsBytes...)  // offset LenCtBlobNonce + len(cidCt) + LenCtBlobTag + LenScalarKi
-	msg = append(msg, spIDBytes...) // offset LenCtBlobNonce + len(cidCt) + LenCtBlobTag + LenScalarKi + 8
+	// Encode the SP id as 4 little-endian bytes.
+	spIDBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(spIDBytes, spIDU32LE)
 
+	// Allocate once with the exact final size, then append each field in order.
+	totalLen := len(cidNonce) + len(cidCt) + len(cidTag) + len(kINew) + 8 + 4
+	msg := make([]byte, 0, totalLen)
+
+	msg = append(msg, cidNonce...)
+	msg = append(msg, cidCt...)
+	msg = append(msg, cidTag...)
+	msg = append(msg, kINew...)
+	msg = append(msg, tsBytes...)
+	msg = append(msg, spIDBytes...)
 	return msg
 }

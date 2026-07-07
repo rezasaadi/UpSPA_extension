@@ -1,6 +1,6 @@
-use ed25519_dalek::SigningKey;
 use crate::aead::xchacha_decrypt_detached;
-use crate::types::{CtBlob, NONCE_LEN, TAG_LEN, UpspaError};
+use crate::types::{CtBlob, UpspaError, NONCE_LEN, TAG_LEN};
+use ed25519_dalek::SigningKey;
 pub mod authenticate;
 pub mod password_update;
 pub mod register;
@@ -10,26 +10,18 @@ pub const CIPHERID_PT_LEN: usize = 96;
 pub const CIPHERSP_PT_LEN: usize = 40;
 pub type CipherId = CtBlob<CIPHERID_PT_LEN>;
 pub type CipherSp = CtBlob<CIPHERSP_PT_LEN>;
-
-/// AAD for encrypting/decrypting `cid` (a.k.a. cipherid).
 pub fn cipherid_aad(uid: &[u8]) -> Vec<u8> {
     let mut aad = Vec::with_capacity(uid.len() + 9);
     aad.extend_from_slice(uid);
     aad.extend_from_slice(b"|cipherid");
     aad
 }
-
-/// AAD for encrypting/decrypting `c_j` (a.k.a. ciphersp).
 pub fn ciphersp_aad(uid: &[u8]) -> Vec<u8> {
     let mut aad = Vec::with_capacity(uid.len() + 9);
     aad.extend_from_slice(uid);
     aad.extend_from_slice(b"|ciphersp");
     aad
 }
-
-/// Plaintext contained inside `cid` (Π1 step 5).
-///
-/// Layout: `ssk(32) || Rsp(32) || K0(32)`.
 #[derive(Clone, Debug)]
 pub struct CidPlaintext {
     pub ssk_bytes: [u8; 32],
@@ -37,7 +29,6 @@ pub struct CidPlaintext {
     pub rsp: [u8; 32],
     pub k0: [u8; 32],
 }
-
 impl CidPlaintext {
     pub fn to_bytes(&self) -> [u8; CIPHERID_PT_LEN] {
         let mut pt = [0u8; CIPHERID_PT_LEN];
@@ -47,19 +38,14 @@ impl CidPlaintext {
         pt
     }
 }
-
 pub fn parse_cipherid_pt(pt: &[u8; CIPHERID_PT_LEN]) -> CidPlaintext {
     let mut ssk_bytes = [0u8; 32];
     ssk_bytes.copy_from_slice(&pt[0..32]);
-
     let mut rsp = [0u8; 32];
     rsp.copy_from_slice(&pt[32..64]);
-
     let mut k0 = [0u8; 32];
     k0.copy_from_slice(&pt[64..96]);
-
     let signing_key = SigningKey::from_bytes(&ssk_bytes);
-
     CidPlaintext {
         ssk_bytes,
         signing_key,
@@ -67,8 +53,6 @@ pub fn parse_cipherid_pt(pt: &[u8; CIPHERID_PT_LEN]) -> CidPlaintext {
         k0,
     }
 }
-
-/// Decrypt `cid` using the derived `state_key`.
 pub fn decrypt_cid(
     uid: &[u8],
     state_key: &[u8; 32],
@@ -78,27 +62,19 @@ pub fn decrypt_cid(
     let pt = xchacha_decrypt_detached(state_key, &aad, cid)?;
     Ok(parse_cipherid_pt(&pt))
 }
-
-/// Plaintext contained inside `c_j` / `c_{j,new}`.
-///
-/// Layout: `R^{ls_j}(32) || ctr(8)`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CipherSpPlaintext {
     pub rlsj: [u8; 32],
     pub ctr: u64,
 }
-
 pub fn parse_ciphersp_pt(pt: &[u8; CIPHERSP_PT_LEN]) -> CipherSpPlaintext {
     let mut rlsj = [0u8; 32];
     rlsj.copy_from_slice(&pt[0..32]);
-
     let mut ctr_bytes = [0u8; 8];
     ctr_bytes.copy_from_slice(&pt[32..40]);
     let ctr = u64::from_le_bytes(ctr_bytes);
-
     CipherSpPlaintext { rlsj, ctr }
 }
-
 pub fn decrypt_cj(
     uid: &[u8],
     k0: &[u8; 32],

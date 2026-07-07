@@ -5,25 +5,107 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>UpSPA</title>
     <style>
-      body { font-family: system-ui, sans-serif; margin: 12px; width: 320px; }
+      body { font-family: system-ui, sans-serif; margin: 12px; width: 360px; color: #1f2933; }
       code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
-      .row { margin: 8px 0; }
-      button { width: 100%; padding: 8px; }
+      label { display: block; margin: 10px 0; font-weight: 600; }
+      input, select, button { width: 100%; box-sizing: border-box; margin-top: 6px; padding: 8px; }
+      button { cursor: pointer; }
+      button:disabled { cursor: not-allowed; opacity: 0.6; }
+      .row { margin: 10px 0; }
       .small { font-size: 12px; opacity: 0.8; }
-      .err { color: #b00020; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      .check { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-weight: 500; }
+      .check input { width: auto; margin: 0; }
+      .origin {
+        overflow-wrap: anywhere;
+        padding: 8px;
+        background: #f5f7fa;
+        border: 1px solid #d6dde5;
+      }
+      .status { background: #f5f7fa; border: 1px solid #d6dde5; padding: 8px; min-height: 34px; }
+      .error { color: #b00020; border-color: #e3a2ad; background: #fff5f6; }
     </style>
   </head>
   <body>
     <h3 style="margin:0 0 8px 0;">UpSPA</h3>
-
-    <div class="row small" id="site"></div>
-    <div class="row" id="status"></div>
-    <div class="row err" id="error"></div>
-
+    <div class="small">Current tab origin</div>
+    <div class="row origin" id="origin"></div>
+    <label>
+      Known accounts
+      <select id="accountSelect"></select>
+    </label>
+    <label>
+      Add or edit account ID
+      <input id="accountId" autocomplete="username" />
+    </label>
+    <div class="row">
+      <button id="saveAccount">Add / update account</button>
+    </div>
+    <div class="row">
+      <button id="deleteAccount">Delete selected account</button>
+    </div>
+    <label>
+      Master password
+      <input id="masterPassword" type="password" autocomplete="current-password" />
+    </label>
+    <div class="row">
+      <button id="detectPolicy">Detect password policy</button>
+    </div>
+    <div class="row">
+      <div class="small">Password policy</div>
+      <div class="grid">
+        <label>
+          Min
+          <input id="policyMinLen" type="number" min="8" />
+        </label>
+        <label>
+          Max
+          <input id="policyMaxLen" type="number" min="8" />
+        </label>
+      </div>
+      <label class="check"><input id="policyUpper" type="checkbox" /> Uppercase</label>
+      <label class="check"><input id="policyLower" type="checkbox" /> Lowercase</label>
+      <label class="check"><input id="policyDigit" type="checkbox" /> Digit</label>
+      <label class="check"><input id="policySymbol" type="checkbox" /> Symbol</label>
+      <label class="check"><input id="policyWhitespace" type="checkbox" /> Forbid whitespace</label>
+      <label>
+        Allowed symbols
+        <input id="policySymbols" />
+      </label>
+      <label>
+        Forbidden substrings
+        <input id="policyForbidden" placeholder="comma separated" />
+      </label>
+      <div class="small" id="policyEvidence"></div>
+    </div>
+    <div class="row">
+      <button id="registerSite">Register current site</button>
+    </div>
+    <div class="row">
+      <button id="generateCandidate">Generate another candidate</button>
+    </div>
+    <div class="row">
+      <button id="confirmRegistration" disabled>Confirm Registration Success</button>
+    </div>
+    <div class="row">
+      <button id="loginSite">Login current site</button>
+    </div>
+    <div class="row">
+      <button id="prepareSecretUpdate">Prepare secret update</button>
+    </div>
+    <div class="row">
+      <button id="commitSecretUpdate" disabled>Commit secret update after website success</button>
+    </div>
+    <div class="row">
+      <button id="cancelSecretUpdate" disabled>Cancel prepared secret update</button>
+    </div>
+    <div class="row status" id="status"></div>
+    <div class="row">
+      <button id="lockSession">Lock extension</button>
+    </div>
     <div class="row">
       <button id="openOptions">Open Options</button>
     </div>
-
     <script type="module" src="./popup.ts"></script>
   </body>
 </html>

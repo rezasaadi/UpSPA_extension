@@ -1,28 +1,29 @@
-export interface ExtensionConfig {
+export type SpConfig = {
+  id: number;
+  baseUrl: string;
+};
+export type UpspaConfig = {
   enabled: boolean;
   uid: string;
   threshold: number;
-  sps: Array<{ id: number; baseUrl: string }>;
-}
-
-export const DEFAULT_CONFIG: ExtensionConfig = {
-  enabled: true,
-  uid: '',
-  threshold: 3,
-  sps: [
-    { id: 1, baseUrl: 'https://sp1.example.com' },
-    { id: 2, baseUrl: 'https://sp2.example.com' },
-    { id: 3, baseUrl: 'https://sp3.example.com' },
-  ],
+  sps: SpConfig[];
 };
-
-const STORAGE_KEY = 'upspa.config';
-
-export async function getConfig(): Promise<ExtensionConfig> {
-  const v = await chrome.storage.local.get(STORAGE_KEY);
-  return (v[STORAGE_KEY] as ExtensionConfig) ?? DEFAULT_CONFIG;
+const STORAGE_KEY = 'upspa_config';
+const DEFAULT_CONFIG: UpspaConfig = {
+  enabled: false,
+  uid: '',
+  threshold: 1,
+  sps: [],
+};
+export async function getConfig(): Promise<UpspaConfig> {
+  const out = await chrome.storage.local.get(STORAGE_KEY);
+  return {
+    ...DEFAULT_CONFIG,
+    ...(out[STORAGE_KEY] ?? {}),
+  };
 }
-
-export async function setConfig(cfg: ExtensionConfig): Promise<void> {
-  await chrome.storage.local.set({ [STORAGE_KEY]: cfg });
+export async function setConfig(cfg: UpspaConfig): Promise<void> {
+  await chrome.storage.local.set({
+    [STORAGE_KEY]: cfg,
+  });
 }

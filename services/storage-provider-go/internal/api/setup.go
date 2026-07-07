@@ -1,147 +1,109 @@
 package api
-
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"net/http"
+	spcrypto "upspa/internal/crypto"
 	"upspa/internal/model"
 )
-
+const (
+	lenUIDMin     = 1
+	lenSUID       = 32
+	lenCipherIDCt = 96
+	lenCipherSpCt = 40
+)
 var (
 	ErrInvalidBase64 = errors.New("invalid base64url encoding")
 	ErrInvalidLength = errors.New("invalid decoded byte length")
-	
-	// Database standard errors
-	ErrNotFound = errors.New("record not found")
-	ErrConflict = errors.New("record conflict")
+	ErrNotFound      = errors.New("record not found")
+	ErrConflict      = errors.New("record conflict")
 )
-
-// Store defines database operations for the handlers.
-// This interface allows us to use a fake database for testing.
 type Store interface {
-	// Setup (Pi1)
 	PutSetup(ctx context.Context, uid, sigPk, cidNonce, cidCt, cidTag, kI string) (bool, error)
-	GetSetup(ctx context.Context, uid string) (*model.SetupResponse, error)
-
-	// TOPRF Eval (Pi2)
-	GetKi(ctx context.Context, uid string) (string, error)
-
-	// Records (Pi3, Pi4)
-	PutRecord(ctx context.Context, suid string, cjNonce, cjCt, cjTag string) (bool, error)
-	GetRecord(ctx context.Context, suid string) (*model.RecordResponse, error)
-	UpdateRecord(ctx context.Context, suid string, cjNonce, cjCt, cjTag string) error
-	DeleteRecord(ctx context.Context, suid string) error
-
-	// Password Update (Pi5)
-	GetPasswordUpdateState(ctx context.Context, uid string) (sigPk string, lastTimestamp uint64, err error)
-	PutPasswordUpdate(ctx context.Context, uid string, newCidNonce, newCidCt, newCidTag, newKi string, newTimestamp uint64) error
+	GetSetup(ctx context.Context, uid string) (sigPk, cidNonce, cidCt, cidTag, kI string, lastTs int64, found bool, err error)
+	GetKi(ctx context.Context, uid string) (kI string, found bool, err error)
+	CreateRecord(ctx context.Context, suid, cjNonce, cjCt, cjTag string) (bool, error)
+	GetRecord(ctx context.Context, suid string) (cjNonce, cjCt, cjTag string, found bool, err error)
+	UpdateRecord(ctx context.Context, suid, cjNonce, cjCt, cjTag string) (bool, error)
+	DeleteRecord(ctx context.Context, suid string) (bool, error)
+	ApplyPasswordUpdate(ctx context.Context, uid string, ts int64, cidNonceNew, cidCtNew, cidTagNew, kINew string) (bool, error)
 }
-
-// CryptoHelper defines crypto operations for the handlers.
-type CryptoHelper interface {
-	VerifyEd25519(sigPk []byte, msg []byte, sig []byte) bool
-}
-
-// DefaultCryptoHelper is a basic placeholder for real crypto usage.
-type DefaultCryptoHelper struct{}
-
-func (d *DefaultCryptoHelper) VerifyEd25519(sigPk []byte, msg []byte, sig []byte) bool {
-	return true
-}
-
-// Handler holds the background services needed to run the API.
 type Handler struct {
-	store  Store
-	crypto CryptoHelper
+	store Store
+	spID  uint32
 }
-
-// NewHandler creates a new Handler with the given Store.
-func NewHandler(s Store) *Handler {
-	return &Handler{
-		store:  s,
-		crypto: &DefaultCryptoHelper{},
+func NewHandler(s Store, spID ...uint32) *Handler {
+	id := uint32(1)
+	if len(spID) > 0 && spID[0] != 0 {
+		id = spID[0]
 	}
+	return &Handler{store: s, spID: id}
 }
-
-// Setup handles POST /v1/setup
+func decodeCanonicalNonEmpty(s string) (raw []byte, canon string, err error) {
+	raw, canon, err = spcrypto.DecodeFixedB64(s, -1)
+	if err != nil {
+		return nil, "", err
+	}
+	if len(raw) < lenUIDMin {
+		return nil, "", ErrInvalidLength
+	}
+	return raw, canon, nil
+}
+func decodeFixed(s string, n int) (raw []byte, canon string, err error) {
+	return spcrypto.DecodeFixedB64(s, n)
+}
+func badField(w http.ResponseWriter, code, field string) {
+	WriteError(w, http.StatusBadRequest, code, "invalid field", map[string]any{"field": field})
+}
+func canonicalCtBlob(b model.CtBlob, ctLen int) (nonceRaw, ctRaw, tagRaw []byte, canon model.CtBlob, err error) {
+	nonceRaw, canon.Nonce, err = decodeFixed(b.Nonce, spcrypto.LenCtBlobNonce)
+	if err != nil {
+		return nil, nil, nil, canon, err
+	}
+	ctRaw, canon.Ct, err = decodeFixed(b.Ct, ctLen)
+	if err != nil {
+		return nil, nil, nil, canon, err
+	}
+	tagRaw, canon.Tag, err = decodeFixed(b.Tag, spcrypto.LenCtBlobTag)
+	if err != nil {
+		return nil, nil, nil, canon, err
+	}
+	return nonceRaw, ctRaw, tagRaw, canon, nil
+}
 func (h *Handler) Setup(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method Not Allowed", nil)
-		return
-	}
-
 	var req model.SetupRequest
 	if err := ReadJSON(w, r, &req); err != nil {
-		WriteError(w, http.StatusBadRequest, "invalid_json_body", "Bad Request: Invalid JSON body", map[string]any{"error": err.Error()})
+		WriteError(w, http.StatusBadRequest, "invalid_json_body", "invalid JSON body", map[string]any{"error": err.Error()})
 		return
 	}
-
-	// Validate data formats and sizes
-	if err := validateBase64URLNoPad(req.UIDB64, 32); err != nil {
-		WriteError(w, http.StatusBadRequest, "invalid_uid", "Bad Request: Invalid uid format or length", nil)
-		return
-	}
-	if err := validateBase64URLNoPad(req.SigPkB64, 32); err != nil {
-		WriteError(w, http.StatusBadRequest, "invalid_sig_pk", "Bad Request: Invalid sig_pk format or length", nil)
-		return
-	}
-	if err := validateBase64URLNoPad(req.CID.Nonce, 24); err != nil {
-		WriteError(w, http.StatusBadRequest, "invalid_cid_nonce", "Bad Request: Invalid cid_nonce format or length", nil)
-		return
-	}
-	if err := validateBase64URLNoPad(req.CID.Ct, 96); err != nil {
-		WriteError(w, http.StatusBadRequest, "invalid_cid_ct", "Bad Request: Invalid cid_ct format or length", nil)
-		return
-	}
-	if err := validateBase64URLNoPad(req.CID.Tag, 16); err != nil {
-		WriteError(w, http.StatusBadRequest, "invalid_cid_tag", "Bad Request: Invalid cid_tag format or length", nil)
-		return
-	}
-	if err := validateBase64URLNoPad(req.KIB64, 32); err != nil {
-		WriteError(w, http.StatusBadRequest, "invalid_k_i", "Bad Request: Invalid k_i format or length", nil)
-		return
-	}
-
-	// Save to database
-	created, err := h.store.PutSetup(
-		r.Context(),
-		req.UIDB64,
-		req.SigPkB64,
-		req.CID.Nonce,
-		req.CID.Ct,
-		req.CID.Tag,
-		req.KIB64,
-	)
-
+	_, uidCanon, err := decodeCanonicalNonEmpty(req.UIDB64)
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, "internal_error", "Internal Server Error", nil)
+		badField(w, "invalid_uid", "uid_b64")
 		return
 	}
-
-	// Return OK if already exists
-	if !created {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	w.WriteHeader(http.StatusCreated)
-}
-
-// validateBase64URLNoPad checks if a base64 string matches the expected byte size.
-func validateBase64URLNoPad(s string, expectedLen int) error {
-	if s == "" {
-		return ErrInvalidBase64
-	}
-
-	decoded, err := base64.RawURLEncoding.DecodeString(s)
+	_, sigCanon, err := decodeFixed(req.SigPkB64, spcrypto.LenEd25519PublicKey)
 	if err != nil {
-		return ErrInvalidBase64
+		badField(w, "invalid_sig_pk", "sig_pk_b64")
+		return
 	}
-
-	if len(decoded) != expectedLen {
-		return ErrInvalidLength
+	_, _, _, cidCanon, err := canonicalCtBlob(req.CID, lenCipherIDCt)
+	if err != nil {
+		badField(w, "invalid_cid", "cid")
+		return
 	}
-
-	return nil
+	_, kICanon, err := decodeFixed(req.KIB64, spcrypto.LenScalarKi)
+	if err != nil {
+		badField(w, "invalid_k_i", "k_i_b64")
+		return
+	}
+	created, err := h.store.PutSetup(r.Context(), uidCanon, sigCanon, cidCanon.Nonce, cidCanon.Ct, cidCanon.Tag, kICanon)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+	if created {
+		_ = WriteJSON(w, http.StatusCreated, map[string]bool{"ok": true})
+	} else {
+		_ = WriteJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	}
 }
