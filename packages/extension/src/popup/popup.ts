@@ -22,6 +22,17 @@ import {
 import { makeLsj } from '../shared/siteIdentity';
 import { clearSession, isSessionFresh, markSessionUsed } from '../shared/session';
 import {
+  clearPendingRegistration,
+  loadPendingRegistration,
+  savePendingRegistration,
+  type PersistedPendingRegistration,
+} from '../shared/pendingRegistration';
+import {
+  clearAutofillCache,
+  loadAutofillCacheFromSession,
+  mergeAndSaveAutofillCache,
+} from '../shared/autofillCache';
+import {
   authenticateForSite,
   commitSecretUpdateForSite,
   prepareSecretUpdateForSite,
@@ -40,12 +51,7 @@ type PendingSecretUpdateCommit = {
   encoderCounter: number;
 };
 
-type PendingRegistration = {
-  origin: string;
-  accountId: string;
-  passwordPolicy: PasswordPolicy;
-  encoderCounter: number;
-};
+type PendingRegistration = PersistedPendingRegistration;
 
 type ContentFillSuccess = Extract<ContentFillResponse, { ok: true }>;
 
@@ -307,9 +313,14 @@ function describeFilled(response: ContentFillSuccess): string {
 
 async function runPopupAction(action: () => Promise<string>): Promise<void> {
   setBusy(true);
+  const masterPasswordSnapshot = masterPasswordEl.value;
+  const accountIdSnapshot = (accountIdEl.value.trim() || accountSelectEl.value).trim();
   try {
     const status = await action();
     await markSessionUsed();
+    if (masterPasswordSnapshot && accountIdSnapshot && activeOrigin) {
+      await mergeAndSaveAutofillCache(masterPasswordSnapshot, activeOrigin, accountIdSnapshot).catch(() => undefined);
+    }
     setStatus(status);
   } catch (e) {
     setStatus(e instanceof Error ? e.message : String(e), 'error');
@@ -335,7 +346,9 @@ registerButton.addEventListener('click', () => {
       accountId,
       passwordPolicy: policy,
       encoderCounter: encoded.counter,
+      createdAt: Date.now(),
     };
+    await savePendingRegistration(pendingRegistration);
     return `Registration value filled (${describeFilled(response)}). Submit the website form manually. After the website confirms registration, click Confirm Registration Success.`;
   });
 });
@@ -359,6 +372,7 @@ confirmRegistrationButton.addEventListener('click', () => {
       });
       await loadAccounts(pendingRegistration.accountId);
       pendingRegistration = undefined;
+      await clearPendingRegistration();
       setBusy(false);
       setStatus('Registration confirmed. Account mapping saved for this origin.');
     } catch (e) {
@@ -427,6 +441,12 @@ deleteAccountButton.addEventListener('click', () => {
       if (!accountId) throw new Error('No account selected.');
       await removeAccountForOrigin(activeOrigin, accountId);
       await loadAccounts();
+      const sessionCache = await loadAutofillCacheFromSession();
+      if (sessionCache?.preferredAccountByOrigin[activeOrigin] === accountId) {
+        delete sessionCache.preferredAccountByOrigin[activeOrigin];
+        const area = (chrome.storage as typeof chrome.storage & { session?: chrome.storage.StorageArea }).session;
+        if (area) await area.set({ upspa_autofill_session: sessionCache });
+      }
       setStatus(`Account mapping deleted. No LS password or master password was stored.`);
     } catch (e) {
       setStatus(e instanceof Error ? e.message : String(e), 'error');
@@ -531,6 +551,8 @@ cancelUpdateButton.addEventListener('click', () => {
 lockSessionButton.addEventListener('click', () => {
   void (async () => {
     await clearPendingSecretUpdate();
+    await clearPendingRegistration();
+    await clearAutofillCache();
     await clearSession();
     setBusy(false);
     setStatus('Extension locked. Enter master password to register, login, or prepare a secret update.');
@@ -545,11 +567,23 @@ async function main(): Promise<void> {
   activeOrigin = getActiveOrigin(tab?.url);
   originEl.textContent = activeOrigin;
 
-  const pending = await loadPendingSecretUpdate();
-  if (pending?.origin !== activeOrigin) {
+  const pendingUpdate = await loadPendingSecretUpdate();
+  if (pendingUpdate?.origin !== activeOrigin) {
     pendingSecretUpdate = undefined;
   }
-  await loadAccounts(pendingSecretUpdate?.accountId);
+
+  const persistedReg = await loadPendingRegistration();
+  if (persistedReg && persistedReg.origin === activeOrigin) {
+    pendingRegistration = persistedReg;
+  }
+
+  const sessionAutofill = await loadAutofillCacheFromSession();
+  const preferredAccountId =
+    pendingRegistration?.accountId ??
+    pendingSecretUpdate?.accountId ??
+    sessionAutofill?.preferredAccountByOrigin[activeOrigin];
+
+  await loadAccounts(preferredAccountId);
 
   const cfg = await getConfig();
   if (!cfg.enabled || !cfg.uid) {
@@ -561,6 +595,8 @@ async function main(): Promise<void> {
   const freshSession = await isSessionFresh();
   if (pendingSecretUpdate) {
     setStatus('Prepared secret update is waiting. Commit only after the website confirms success.');
+  } else if (pendingRegistration) {
+    setStatus('Registration pending — submit the site form then click Confirm Registration Success.');
   } else if (!freshSession) {
     setStatus('Extension locked. Enter master password to register, login, or prepare a secret update.');
   } else {

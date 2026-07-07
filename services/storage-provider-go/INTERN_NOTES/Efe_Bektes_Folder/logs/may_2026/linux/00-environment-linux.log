@@ -1,0 +1,18 @@
+UpSPA - Linux (cloud AI agent) environment
+captured: 2026-05-30 20:52:54 UTC
+----------------------------------------------------------------
+OS:        Ubuntu 24.04.4 LTS
+Kernel:    Linux 6.18.5
+Arch:      x86_64
+CPU model: Intel(R) Xeon(R) Processor @ 2.10GHz
+CPU cores: 1 vCPU
+RAM:       3.9Gi total / 3.6Gi available
+GPU:       none (headless CPU container; UpSPA's cryptography is CPU-only)
+Node:      v22.22.2
+Go:        go1.22.2
+Python:    3.12.3
+----------------------------------------------------------------
+Driver:    node upspa-demo-driver.mjs (upspa-js client compiled for Node)
+Backend:   real light login server (:3000) + 3 mock SPs (:8081/2/3) each
+           performing the real ristretto255 op y = k_i * blinded.
+Result:    7 passed, 0 failed (see 03-driver.log)

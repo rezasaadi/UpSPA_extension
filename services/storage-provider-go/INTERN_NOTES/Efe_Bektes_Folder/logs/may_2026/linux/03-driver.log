@@ -1,0 +1,15 @@
+UpSPA headless demo driver
+  UID=test-user  account=alice  threshold=2
+  login server=http://localhost:3000
+  SPs: http://localhost:8081  http://localhost:8082  http://localhost:8083
+  lsj=http://localhost:3000|alice
+
+  [PASS] setup / provision SPs
+  [PASS] register  (HTTP 201)
+  [PASS] login  (HTTP 200)
+  [PASS] secret update  (HTTP 200)
+  [PASS] login after secret update  (HTTP 200)
+  [PASS] master password update + login with new master  (HTTP 200)
+  [PASS] resilience: login with 2 of 3 SPs  (HTTP 200)
+
+RESULT: 7 passed, 0 failed

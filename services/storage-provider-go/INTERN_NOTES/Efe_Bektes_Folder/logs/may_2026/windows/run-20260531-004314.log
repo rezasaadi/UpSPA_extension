@@ -1,0 +1,163 @@
+Windows PowerShell
+Copyright (C) Microsoft Corporation. All rights reserved.
+
+PS C:\Users\efebe> cd $HOME\Downloads
+PS C:\Users\efebe\Downloads> powershell -ExecutionPolicy Bypass -File .\upspa-setup-and-run.ps1 -SkipInstall -UseGnuToolchain
+SCRIPT VERSION: 2026-05-30o (CPU/RAM/GPU capture; PG self-heal on stale lock; git-tolerant clone; logs under may_logs + 99-run-report.md; login-server screenshots; headless driver auto-run; prebuilt dist; ASCII bars + diagnostics; GNU toolchain)
+Install dir : C:\Users\efebe\upspa
+Log file    : C:\Users\efebe\upspa-demo-logs\may_logs\run-20260531-004314.log
+
+===== STEP 0/9 [--------------------]   0% : Diagnostics - environment snapshot =====
+  [DIAG] date            : 05/31/2026 00:43:14
+  [DIAG] OS              : Microsoft Windows 11 Pro Education build 26200
+  [DIAG] PowerShell      : 5.1.26100.8457 Desktop
+  [DIAG] arch            : AMD64
+  [DIAG] CPU             : Intel(R) Core(TM) Ultra 7 258V
+  [DIAG] CPU cores       : 8 logical
+  [DIAG] RAM             : 31,5 GB
+  [DIAG] GPU             : Intel(R) Arc(TM) 140V GPU (16GB)
+  [DIAG] elevated        : no (good)
+  [DIAG] free disk       : 688,2 GB on drive C:\
+  [DIAG] git             : (not found)
+  [DIAG] go              : go version go1.26.2 windows/amd64
+  [DIAG] node            : v24.16.0
+  [DIAG] npm             : 11.13.0
+  [DIAG] cargo           : cargo 1.96.0 (30a34c682 2026-05-25)
+  [DIAG] rustup          : rustup 1.29.0 (28d1352db 2026-03-05)
+  [DIAG] wasm-pack       : wasm-pack 0.15.0
+  [DIAG] conda           : (not found)
+  [DIAG] VC++ linker     : present
+  [DIAG] Windows SDK     : MISSING (MSVC build needs it; or use -UseGnuToolchain)
+  [DIAG] install dir     : C:\Users\efebe\upspa (exists)
+  [DIAG] port 5432       : IN USE (pid 19524)
+  [DIAG] port 8081       : free
+  [DIAG] port 8082       : free
+  [DIAG] port 8083       : free
+  [DIAG] port 3000       : free
+  [DIAG] build mode      : GNU Rust toolchain (no MSVC / Windows SDK needed)
+
+===== STEP 1/9 [--------------------]   0% : Skipping install (-SkipInstall) =====
+
+===== STEP 2/9 [##------------------]  11% : PostgreSQL: set up the demo databases =====
+  setting up a self-contained PostgreSQL via conda-forge (no EnterpriseDB, no Docker)...
+  using conda at C:\Users\efebe\miniconda3\Scripts\conda.exe
+  PostgreSQL already listening on 5432; reusing it.
+  waiting for PostgreSQL on :5432 [####################] 100% (ready in 0s)
+  creating databases upspa1/upspa2/upspa3 (an 'already exists' message is fine)...
+  [OK] PostgreSQL ready (self-contained) with upspa1/upspa2/upspa3; data dir: C:\Users\efebe\upspa-pgdata
+
+===== STEP 3/9 [####----------------]  22% : Get the project (clone or update) =====
+  repo already present; pulling latest...
+M       crates/upspa-wasm/Cargo.toml
+M       packages/extension/src/background/index.ts
+M       packages/extension/vite.config.ts
+M       scripts/build_wasm.sh
+M       services/storage-provider-go/go.mod
+D       services/storage-provider-go/internal/crypto/go.mod
+M       services/storage-provider-go/internal/crypto/ristretto_test.go
+Already on 'main'
+Your branch is up to date with 'origin/main'.
+Already up to date.
+  [OK] project at C:\Users\efebe\upspa
+
+===== STEP 4/9 [######--------------]  33% : Apply the two build fixes (so it compiles + tests pass) =====
+  no nested go.mod (already gone)
+  ristretto_test.go already correct
+  [OK] normalized build_wasm.sh line endings to LF
+  wasm-opt setting already present
+  background already uses a static upspa-js import
+  vite alias already normalized
+  [OK] go modules tidy
+
+===== STEP 5/9 [########------------]  44% : Install JS deps and build WASM + extension =====
+  npm will run scripts via: C:\Program Files\Git\bin\bash.exe
+  npm install (root workspaces)...
+up to date, audited 150 packages in 2s
+6 vulnerabilities (4 moderate, 2 high)
+  building WASM, then JS, then the extension...
+  using the GNU Rust toolchain (no MSVC / Windows SDK needed)...
+[INFO]: Checking for the Wasm target...
+[INFO]: Compiling to Wasm...
+warning: unused imports: `NONCE_LEN` and `TAG_LEN`
+ --> crates\upspa-core\src\protocol\mod.rs:3:28
+    Finished `release` profile [optimized] target(s) in 3.22s
+[INFO]: Installing wasm-bindgen...
+[INFO]: Done in 3.97s
+[INFO]: Your wasm pkg is ready to publish at packages\upspa-js\wasm-pkg.
+  [OK] WASM built -> C:\Users\efebe\upspa\packages\upspa-js\wasm-pkg
+  building upspa-js (tsc)...
+> upspa-js@0.1.0 build
+> tsc -p tsconfig.json
+  building the extension (vite)...
+> upspa-extension@0.1.0 build
+> vite build
+vite v2.9.18 building for production...
+2 modules transformed.
+[rollup-plugin-dynamic-import-variables] Bad character escape sequence (3:24)
+file: C:\Users\efebe\upspa\packages\extension\src\options\options.html:3:24
+error during build:
+SyntaxError: Bad character escape sequence (3:24)
+    at pp$4.raise (...\rollup\dist\shared\rollup.js:19728:13)
+    at pp.invalidStringToken (...\rollup.js:21604:10)
+    at pp.readHexChar (...\rollup.js:21747:26)
+    at pp.readCodePoint (...\rollup.js:21550:17)
+    at pp.readEscapedChar (...\rollup.js:21686:43)
+    at pp.readString (...\rollup.js:21563:19)
+    at pp.getTokenFromCode (...\rollup.js:21353:17)
+    at pp.readToken (...\rollup.js:21077:15)
+npm error code 1
+npm error workspace upspa-extension@0.1.0
+npm error command failed
+npm error command C:\Program Files\Git\bin\bash.exe -c vite build
+  [WARN] extension build did not produce dist/. On Windows this is usually the known @crxjs 1.0.14 path bug.
+  [WARN] You can load the PREBUILT dist instead: unzip upspa-extension-dist.zip, then re-run with -UsePrebuiltDist.
+  [WARN] Continuing so the servers still start; the Chrome step below will use the prebuilt dist.
+
+===== STEP 6/9 [###########---------]  55% : Build the storage provider once, then start 3 instances + the login server =====
+  compiling the storage provider (go build)...
+  [OK] storage provider compiled
+  sp1 started (PID 23272); logs: sp1.out.log / sp1.err.log
+  sp2 started (PID 9512); logs: sp2.out.log / sp2.err.log
+  sp3 started (PID 25296); logs: sp3.out.log / sp3.err.log
+  login-server started (PID 24716); logs: login-server.out.log / login-server.err.log
+
+===== STEP 7/9 [#############-------]  66% : Wait for the servers to be healthy =====
+  SP1 health on :8081 [####################] 100% (ready in 0s)
+  [OK] SP1 healthy on :8081
+  SP2 health on :8082 [####################] 100% (ready in 0s)
+  [OK] SP2 healthy on :8082
+  SP3 health on :8083 [####################] 100% (ready in 0s)
+  [OK] SP3 healthy on :8083
+  login server on :3000 [####################] 100% (ready in 0s)
+  [OK] login server up on :3000
+
+===== STEP 8/9 [###############-----]  77% : Run the UpSPA protocol end-to-end (headless driver - no Chrome needed) =====
+  driver: C:\Users\efebe\Downloads\upspa-extension-dist\demo-driver\upspa-demo-driver.mjs
+UpSPA headless demo driver
+  UID=test-user  account=alice  threshold=2
+  login server=http://localhost:3000
+  SPs: http://localhost:8081  http://localhost:8082  http://localhost:8083
+  lsj=http://localhost:3000|alice
+
+  [PASS] setup / provision SPs
+  [PASS] register  (HTTP 201)
+  [PASS] login  (HTTP 200)
+  [PASS] secret update  (HTTP 200)
+  [PASS] login after secret update  (HTTP 200)
+  [PASS] master password update + login with new master  (HTTP 200)
+  [PASS] resilience: login with 2 of 3 SPs  (HTTP 200)
+
+RESULT: 7 passed, 0 failed
+  [OK] headless protocol demo: ALL steps passed
+  capturing login-server screenshots (headless Chrome; non-fatal if Chrome is missing)...
+  [OK] captured 7 login-server screenshot(s) to C:\Users\efebe\upspa-demo-logs\may_logs\screenshots
+
+===== STEP 9/9 [#################---]  88% : OPTIONAL: the same demo by hand in Chrome (the driver above already ran it) =====
+  [WARN] No extension dist was built (Windows @crxjs bug). Unzip upspa-extension-dist.zip and load THAT folder in Chrome.
+  A. chrome://extensions -> Developer mode -> Load unpacked
+  B. Extension Options: UID test-user / Master Password test-password / Threshold 2 / SPs 1..3
+  C. On http://localhost:3000 : register, login, secret-update, master-password update, resilience (2 of 3)
+  [OK] run report written: C:\Users\efebe\upspa-demo-logs\may_logs\99-run-report.md
+
+===== ALL STEPS COMPLETE [####################] 100% =====
+Servers running. Logs in: C:\Users\efebe\upspa-demo-logs\may_logs
