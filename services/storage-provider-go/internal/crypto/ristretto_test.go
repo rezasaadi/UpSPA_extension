@@ -8,7 +8,7 @@ import (
 	"upspa/internal/crypto"
 )
 func validRistrettoPoint() []byte {
-	return ristretto255.NewGeneratorElement().Encode(make([]byte, 0, 32))
+	return ristretto255.NewElement().Base().Encode(make([]byte, 0, 32))
 }
 func TestRistrettoScalarMult_ValidInputs(t *testing.T) {
 	k := make([]byte, 32)

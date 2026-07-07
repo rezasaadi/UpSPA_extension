@@ -1,0 +1,27 @@
+  [DIAG] date            : 05/31/2026 00:43:14
+  [DIAG] OS              : Microsoft Windows 11 Pro Education build 26200
+  [DIAG] PowerShell      : 5.1.26100.8457 Desktop
+  [DIAG] arch            : AMD64
+  [DIAG] CPU             : Intel(R) Core(TM) Ultra 7 258V
+  [DIAG] CPU cores       : 8 logical
+  [DIAG] RAM             : 31,5 GB
+  [DIAG] GPU             : Intel(R) Arc(TM) 140V GPU (16GB)
+  [DIAG] elevated        : no (good)
+  [DIAG] free disk       : 688,2 GB on drive C:\
+  [DIAG] git             : (not found)
+  [DIAG] go              : go version go1.26.2 windows/amd64
+  [DIAG] node            : v24.16.0
+  [DIAG] npm             : 11.13.0
+  [DIAG] cargo           : cargo 1.96.0 (30a34c682 2026-05-25)
+  [DIAG] rustup          : rustup 1.29.0 (28d1352db 2026-03-05)
+  [DIAG] wasm-pack       : wasm-pack 0.15.0
+  [DIAG] conda           : (not found)
+  [DIAG] VC++ linker     : present
+  [DIAG] Windows SDK     : MISSING (MSVC build needs it; or use -UseGnuToolchain)
+  [DIAG] install dir     : C:\Users\efebe\upspa (exists)
+  [DIAG] port 5432       : IN USE (pid 19524)
+  [DIAG] port 8081       : free
+  [DIAG] port 8082       : free
+  [DIAG] port 8083       : free
+  [DIAG] port 3000       : free
+  [DIAG] build mode      : GNU Rust toolchain (no MSVC / Windows SDK needed)

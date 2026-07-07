@@ -1,0 +1,24 @@
+2026-05-30 20:24:58.486 +03 [3668] ERROR:  database "upspa3" already exists
+2026-05-30 20:24:58.486 +03 [3668] STATEMENT:  CREATE DATABASE upspa3;
+2026-05-30 20:25:28.589 +03 [24352] FATAL:  role "efebe" does not exist
+2026-05-30 20:25:28.878 +03 [18636] FATAL:  role "efebe" does not exist
+2026-05-30 20:25:29.039 +03 [6056] ERROR:  database "upspa1" already exists
+2026-05-30 20:25:29.039 +03 [6056] STATEMENT:  CREATE DATABASE upspa1;
+2026-05-30 20:25:29.260 +03 [17596] ERROR:  database "upspa2" already exists
+2026-05-30 20:25:29.260 +03 [17596] STATEMENT:  CREATE DATABASE upspa2;
+2026-05-30 20:25:29.491 +03 [25900] ERROR:  database "upspa3" already exists
+2026-05-30 20:25:29.491 +03 [25900] STATEMENT:  CREATE DATABASE upspa3;
+2026-05-30 20:28:07.891 +03 [10124] LOG:  checkpoint starting: time
+2026-05-30 20:28:18.759 +03 [10124] LOG:  checkpoint complete: wrote 99 buffers (0.6%), wrote 1 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=10.678 s, sync=0.131 s, total=10.868 s; sync files=103, longest=0.005 s, average=0.002 s; distance=470 kB, estimate=470 kB; lsn=0/261B018, redo lsn=0/261AF88
+2026-05-30 21:00:51.803 +03 [23856] FATAL:  role "efebe" does not exist
+2026-05-30 21:00:51.903 +03 [17664] FATAL:  role "efebe" does not exist
+2026-05-30 21:00:51.992 +03 [14600] ERROR:  database "upspa1" already exists
+2026-05-30 21:00:51.992 +03 [14600] STATEMENT:  CREATE DATABASE upspa1;
+2026-05-30 21:00:52.107 +03 [17040] ERROR:  database "upspa2" already exists
+2026-05-30 21:00:52.107 +03 [17040] STATEMENT:  CREATE DATABASE upspa2;
+2026-05-30 21:00:52.287 +03 [9468] ERROR:  database "upspa3" already exists
+2026-05-30 21:00:52.287 +03 [9468] STATEMENT:  CREATE DATABASE upspa3;
+2026-05-30 21:01:09.745 +03 [16312] LOG:  background worker "logical replication launcher" (PID 26232) was terminated by exception 0xC000013A
+2026-05-30 21:01:09.745 +03 [16312] HINT:  See C include file "ntstatus.h" for a description of the hexadecimal value.
+2026-05-30 21:01:09.745 +03 [16312] LOG:  terminating any other active server processes
+2026-05-30 21:01:09.780 +03 [16312] LOG:  received fast shutdown request
