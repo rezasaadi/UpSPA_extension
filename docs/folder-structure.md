@@ -181,7 +181,7 @@ The demo allows developers to execute the full UpSPA workflow without integratin
 
 ### `docker/`
 
-This folder contains Docker-related deployment resources, which simplify running services in a reproducible development environment.
+This folder contains Docker-related deployment resources, which simplify running the Service Provider (particularly the PostgreSQL) and/or the website test in a reproducible development environment.
 
 ### `docs/`
 
