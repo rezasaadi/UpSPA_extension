@@ -14,7 +14,11 @@ Therefore, the generated `dist/` directory serves as the distributable version o
 
 ## Generation Process
 
-The `dist/` folder is created automatically during the extension build process.
+The `dist/` folder is created automatically during the extension build process. To build the extension, do:
+
+```bash
+npm run build:demo
+```
 
 The build system performs several tasks:
 
