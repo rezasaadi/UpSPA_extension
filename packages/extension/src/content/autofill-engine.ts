@@ -5,9 +5,10 @@
  *   RootRegistry        — forest of scannable roots (document, open ShadowRoots, same-origin iframes)
  *   HeuristicEngine     — weighted-regex field classifier + topological form-intent classifier
  *   MutationLifecycle   — dirty-root marking, trailing debounce + max-wait, idle-time rescans
- *   EventInterceptor    — capture-phase focusin/input/submit with composedPath() recovery
+ *   EventInterceptor    — capture-phase focusin/input/keydown/click/submit with composedPath() recovery
  *
- * No site-specific rules. All state is WeakMap/WeakSet-keyed for automatic GC of removed nodes.
+ * No site-specific rules. Per-element state is WeakMap/WeakSet-keyed; per-root state
+ * (observers, listeners, input caches) is explicitly released when a root is pruned.
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -59,6 +60,10 @@ export interface EngineConfig {
   readonly maxWaitMs: number;
   readonly minFieldScore: number;
   readonly maxIframeDepth: number;
+  /** Minimum interval between synchronous rescans forced from event handlers. */
+  readonly forcedRescanCooldownMs: number;
+  /** Minimum interval between onFormSubmitted emissions for the same container. */
+  readonly submitDedupeMs: number;
 }
 
 export type ScanRoot = Document | ShadowRoot;
@@ -68,7 +73,53 @@ const DEFAULT_CONFIG: EngineConfig = {
   maxWaitMs: 1000,
   minFieldScore: 2,
   maxIframeDepth: 3,
+  forcedRescanCooldownMs: 1000,
+  submitDedupeMs: 500,
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Realm-safe brand checks
+//
+// `instanceof HTMLInputElement` (etc.) fails for nodes owned by a same-origin
+// iframe: those objects belong to the iframe's JS realm, whose constructors are
+// different objects from ours. Every brand check therefore goes through
+// nodeType/localName, which are realm-independent.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function isElement(n: unknown): n is Element {
+  return typeof n === 'object' && n !== null && (n as Node).nodeType === 1;
+}
+
+function isInput(n: unknown): n is HTMLInputElement {
+  return isElement(n) && n.localName === 'input';
+}
+
+function isIframe(n: unknown): n is HTMLIFrameElement {
+  return isElement(n) && n.localName === 'iframe';
+}
+
+function isFormElement(n: unknown): n is HTMLFormElement {
+  return isElement(n) && n.localName === 'form';
+}
+
+function isDocumentRoot(root: ScanRoot): root is Document {
+  return root.nodeType === 9; // Node.DOCUMENT_NODE
+}
+
+/**
+ * A root is dead when its browsing context is gone (iframe removed/navigated →
+ * defaultView === null) or, for shadow roots, when the host is detached or the
+ * host's own document is dead.
+ */
+function isRootAlive(root: ScanRoot): boolean {
+  try {
+    if (isDocumentRoot(root)) return root.defaultView !== null;
+    const host = root.host;
+    return host.isConnected && host.ownerDocument.defaultView !== null;
+  } catch {
+    return false;
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Heuristic signal tables (weighted regex — order-independent, site-agnostic)
@@ -83,7 +134,10 @@ const sig = (re: RegExp, weight: number): Signal => ({ re, weight });
 
 /** Poison terms: any field matching these is heavily penalized for every role. */
 const NEGATIVE: readonly Signal[] = [
-  sig(/search|query|captcha|coupon|promo|gift.?card|zip|postal|city|street|address|company|subject|comment|message/i, -6),
+  sig(/search|query|captcha|coupon|promo|gift.?card|zip|postal|city|street|company|subject|comment|message/i, -6),
+  // "address" alone is poison (postal address) but must NOT match "email address",
+  // one of the most common email-field labels on the web.
+  sig(/(?<!e[-_ ]?mail[\s_-]{0,2})address/i, -6),
   sig(/card.?number|cvv|cvc|expir|iban|routing|account.?number/i, -6),
 ];
 
@@ -164,27 +218,35 @@ function resolveLabelText(input: HTMLInputElement): string {
   return parts.join(' ').replace(/\s+/g, ' ').trim().slice(0, 200);
 }
 
-/** Concatenated attribute corpus the regex signals run against. */
+/**
+ * Concatenated attribute corpus the regex signals run against. className goes
+ * last and is capped independently: utility-CSS class lists (Tailwind) can be
+ * hundreds of characters and must not evict label/placeholder text from the
+ * overall budget.
+ */
 function buildCorpus(input: HTMLInputElement): string {
   return [
     input.name,
     input.id,
     input.placeholder,
-    input.className,
     input.getAttribute('data-testid') ?? '',
     resolveLabelText(input),
+    input.className.slice(0, 120),
   ]
     .join(' ')
-    .slice(0, 400);
+    .slice(0, 500);
 }
 
 /**
  * Set a value so framework-controlled inputs (React/Vue/Angular) register it:
  * use the native prototype setter to defeat value-tracking, then dispatch
- * composed input/change events.
+ * composed input/change events. The setter must come from the element's OWN
+ * realm — the top window's HTMLInputElement.prototype does not defeat the
+ * value tracker of an input living in a same-origin iframe.
  */
 export function setNativeValue(input: HTMLInputElement, value: string): void {
-  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+  const win = (input.ownerDocument.defaultView ?? window) as typeof globalThis;
+  const setter = Object.getOwnPropertyDescriptor(win.HTMLInputElement.prototype, 'value')?.set;
   setter ? setter.call(input, value) : (input.value = value);
   for (const type of ['input', 'change'] as const) {
     input.dispatchEvent(new Event(type, { bubbles: true, composed: true }));
@@ -196,7 +258,7 @@ function commonAncestor(elements: readonly HTMLElement[]): HTMLElement {
   let ancestor: HTMLElement = elements[0];
   for (let i = 1; i < elements.length; i++) {
     while (!ancestor.contains(elements[i])) {
-      const parent = ancestor.parentElement ?? (ancestor.getRootNode() as ShadowRoot).host as HTMLElement | null;
+      const parent = ancestor.parentElement ?? ((ancestor.getRootNode() as ShadowRoot).host as HTMLElement | undefined);
       if (!parent) return (ancestor.ownerDocument?.body ?? ancestor) as HTMLElement;
       ancestor = parent;
     }
@@ -210,32 +272,48 @@ function commonAncestor(elements: readonly HTMLElement[]): HTMLElement {
 
 class HeuristicEngine {
   private readonly fieldCache = new WeakMap<HTMLInputElement, ClassifiedField>();
-  /** Corpus snapshot used to invalidate cache entries when attributes change. */
-  private readonly corpusCache = new WeakMap<HTMLInputElement, string>();
+  /** Snapshot of everything the classification depends on; invalidates the cache when it drifts. */
+  private readonly keyCache = new WeakMap<HTMLInputElement, string>();
+  /**
+   * Inputs that were ever type="password". Show/hide-password toggles flip the
+   * type to "text"; without this memory the field would silently declassify.
+   */
+  private readonly everPassword = new WeakSet<HTMLInputElement>();
 
   constructor(private readonly config: EngineConfig) {}
 
   classifyField(input: HTMLInputElement): ClassifiedField {
+    if (input.type === 'password') this.everPassword.add(input);
     const corpus = buildCorpus(input);
+    const key = `${input.type}\u0000${input.getAttribute('autocomplete') ?? ''}\u0000${corpus}`;
+    // Visibility is NEVER cached: it can change with zero attribute mutations on
+    // the input itself (e.g. an ancestor modal toggling display).
+    const visible = isVisible(input);
+
     const cached = this.fieldCache.get(input);
-    if (cached && this.corpusCache.get(input) === corpus && cached.element.type === input.type) {
-      return cached;
+    if (cached && this.keyCache.get(input) === key) {
+      if (cached.visible === visible) return cached;
+      const updated: ClassifiedField = { ...cached, visible };
+      this.fieldCache.set(input, updated);
+      return updated;
     }
-    const result = this.computeField(input, corpus);
+    const result = this.computeField(input, corpus, visible);
     this.fieldCache.set(input, result);
-    this.corpusCache.set(input, corpus);
+    this.keyCache.set(input, key);
     return result;
   }
 
-  private computeField(input: HTMLInputElement, corpus: string): ClassifiedField {
-    const visible = isVisible(input);
+  private computeField(input: HTMLInputElement, corpus: string, visible: boolean): ClassifiedField {
+    // Tier 1: authoritative autocomplete token. Scan ALL tokens — markup like
+    // "username webauthn" or "section-login current-password" carries the role
+    // token in a non-terminal position.
+    const tokens = (input.getAttribute('autocomplete') ?? '').trim().toLowerCase().split(/\s+/);
+    for (const token of tokens) {
+      const role = AUTOCOMPLETE_ROLES[token];
+      if (role) return { element: input, role, confidence: 1, visible };
+    }
 
-    // Tier 1: authoritative autocomplete token.
-    const token = input.autocomplete?.trim().toLowerCase().split(/\s+/).pop() ?? '';
-    const authoritative = AUTOCOMPLETE_ROLES[token];
-    if (authoritative) return { element: input, role: authoritative, confidence: 1, visible };
-
-    const isPassword = input.type === 'password';
+    const isPassword = input.type === 'password' || this.everPassword.has(input);
     const roles: readonly FieldRole[] = isPassword
       ? ['current-password', 'new-password', 'confirm-password']
       : input.type === 'email'
@@ -345,7 +423,8 @@ class HeuristicEngine {
 
   private formTextHits(container: HTMLElement): Set<FormIntent> {
     const parts: string[] = [container.getAttribute('id') ?? '', container.getAttribute('name') ?? ''];
-    if (container instanceof HTMLFormElement) parts.push(container.action ?? '');
+    // getAttribute, not .action: an <input name="action"> clobbers the IDL property.
+    if (isFormElement(container)) parts.push(container.getAttribute('action') ?? '');
     container
       .querySelectorAll<HTMLElement>('button, input[type="submit"], [role="button"], h1, h2, legend')
       .forEach((el, i) => {
@@ -362,28 +441,37 @@ class HeuristicEngine {
 // Root registry + traversal (Shadow DOM / iframe piercing)
 // ─────────────────────────────────────────────────────────────────────────────
 
+interface DiscoveredRoot {
+  readonly root: ScanRoot;
+  readonly iframeDepth: number;
+}
+
 interface ScanResult {
   readonly inputs: HTMLInputElement[];
-  readonly newRoots: ScanRoot[];
+  readonly newRoots: readonly DiscoveredRoot[];
 }
 
 class RootRegistry {
-  private readonly known = new Set<ScanRoot>();
+  /** root → iframe nesting depth (shadow roots inherit their host root's depth). */
+  private readonly known = new Map<ScanRoot, number>();
 
   has(root: ScanRoot): boolean {
     return this.known.has(root);
   }
 
-  add(root: ScanRoot): void {
-    this.known.add(root);
+  add(root: ScanRoot, iframeDepth: number): void {
+    this.known.set(root, iframeDepth);
   }
 
-  /** Removes stale roots (detached shadow hosts, torn-down documents) and returns them for cleanup. */
+  depthOf(root: ScanRoot): number {
+    return this.known.get(root) ?? 0;
+  }
+
+  /** Removes dead roots (detached shadow hosts, discarded iframe documents) and returns them for cleanup. */
   prune(): ScanRoot[] {
     const removed: ScanRoot[] = [];
-    for (const root of this.known) {
-      const doc = root instanceof Document ? root : root.host.ownerDocument;
-      if (!doc || (root instanceof ShadowRoot && !root.host.isConnected)) {
+    for (const root of this.known.keys()) {
+      if (!isRootAlive(root)) {
         this.known.delete(root);
         removed.push(root);
       }
@@ -392,7 +480,11 @@ class RootRegistry {
   }
 
   all(): readonly ScanRoot[] {
-    return [...this.known];
+    return [...this.known.keys()];
+  }
+
+  clear(): void {
+    this.known.clear();
   }
 
   /**
@@ -400,20 +492,18 @@ class RootRegistry {
    * shadow roots and same-origin iframe documents. Explicit stack — no recursion
    * limits, trivially time-sliceable.
    */
-  scan(root: ScanRoot, maxIframeDepth: number, iframeDepth = 0): ScanResult {
+  scan(root: ScanRoot, iframeDepth: number, maxIframeDepth: number): ScanResult {
     const inputs: HTMLInputElement[] = [];
-    const newRoots: ScanRoot[] = [];
+    const newRoots: DiscoveredRoot[] = [];
     const stack: Element[] = [];
-    const seed = root instanceof Document ? root.documentElement : null;
-    if (seed) stack.push(seed);
-    else for (let c = root.firstElementChild; c; c = c.nextElementSibling) stack.push(c);
+    for (let c = root.lastElementChild; c; c = c.previousElementSibling) stack.push(c);
 
     while (stack.length > 0) {
       const el = stack.pop() as Element;
 
-      if (el instanceof HTMLInputElement) {
+      if (isInput(el)) {
         if (isFillable(el)) inputs.push(el);
-      } else if (el instanceof HTMLIFrameElement && iframeDepth < maxIframeDepth) {
+      } else if (isIframe(el) && iframeDepth < maxIframeDepth) {
         // Same-origin only; cross-origin frames run their own engine via all_frames injection.
         let doc: Document | null = null;
         try {
@@ -421,14 +511,14 @@ class RootRegistry {
         } catch {
           doc = null;
         }
-        if (doc && !this.known.has(doc)) newRoots.push(doc);
+        if (doc && !this.known.has(doc)) newRoots.push({ root: doc, iframeDepth: iframeDepth + 1 });
       }
 
       const shadow = el.shadowRoot; // open roots only; closed are unreachable by design
-      if (shadow && !this.known.has(shadow)) newRoots.push(shadow);
+      if (shadow && !this.known.has(shadow)) newRoots.push({ root: shadow, iframeDepth });
 
       // Skip subtrees that can never contain fields.
-      if (!/^(SCRIPT|STYLE|SVG|CANVAS|VIDEO|AUDIO|TEMPLATE)$/.test(el.tagName)) {
+      if (!/^(SCRIPT|STYLE|SVG|CANVAS|VIDEO|AUDIO|TEMPLATE|IFRAME)$/.test(el.tagName)) {
         for (let c = el.lastElementChild; c; c = c.previousElementSibling) stack.push(c);
       }
     }
@@ -443,11 +533,12 @@ class RootRegistry {
 const RELEVANT_ATTRS = ['type', 'autocomplete', 'name', 'id', 'disabled', 'readonly', 'hidden', 'style', 'class'];
 
 class MutationLifecycle {
-  private readonly observers = new WeakMap<ScanRoot, MutationObserver>();
-  private readonly observedRoots = new WeakSet<ScanRoot>();
+  private readonly observers = new Map<ScanRoot, MutationObserver>();
+  /** Roots that reported a relevant mutation since the last flush. */
+  private readonly dirty = new Set<ScanRoot>();
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private maxWaitTimer: ReturnType<typeof setTimeout> | null = null;
-  private idleHandle: number | null = null;
+  private cancelIdle: (() => void) | null = null;
 
   constructor(
     private readonly config: EngineConfig,
@@ -455,12 +546,12 @@ class MutationLifecycle {
   ) {}
 
   observe(root: ScanRoot): void {
-    if (this.observedRoots.has(root)) return;
-    this.observedRoots.add(root);
+    if (this.observers.has(root)) return;
     const observer = new MutationObserver((mutations) => {
-      // Zero DOM reads here — only relevance filtering, then schedule.
+      // Zero DOM reads here — only relevance filtering + dirty marking, then schedule.
       for (const m of mutations) {
         if (m.type === 'childList' && m.addedNodes.length === 0 && m.removedNodes.length === 0) continue;
+        this.dirty.add(root);
         this.schedule();
         return;
       }
@@ -472,6 +563,13 @@ class MutationLifecycle {
       attributeFilter: RELEVANT_ATTRS,
     });
     this.observers.set(root, observer);
+  }
+
+  /** Drains and returns the set of roots that mutated since the last drain. */
+  takeDirty(): Set<ScanRoot> {
+    const drained = new Set(this.dirty);
+    this.dirty.clear();
+    return drained;
   }
 
   /** Trailing-edge debounce with a max-wait ceiling so mutation storms still get scanned. */
@@ -488,26 +586,36 @@ class MutationLifecycle {
     if (this.maxWaitTimer !== null) clearTimeout(this.maxWaitTimer);
     this.debounceTimer = null;
     this.maxWaitTimer = null;
-    if (this.idleHandle !== null) return; // rescan already queued
+    if (this.cancelIdle !== null) return; // rescan already queued
 
     const run = (): void => {
-      this.idleHandle = null;
+      this.cancelIdle = null;
       this.onRescan();
     };
-    this.idleHandle =
-      typeof requestIdleCallback === 'function'
-        ? requestIdleCallback(run, { timeout: 500 })
-        : (setTimeout(run, 0) as unknown as number);
+    if (typeof requestIdleCallback === 'function') {
+      const handle = requestIdleCallback(run, { timeout: 500 });
+      this.cancelIdle = () => cancelIdleCallback(handle);
+    } else {
+      const handle = setTimeout(run, 0);
+      this.cancelIdle = () => clearTimeout(handle);
+    }
   }
 
   disconnect(root: ScanRoot): void {
     this.observers.get(root)?.disconnect();
+    this.observers.delete(root);
+    this.dirty.delete(root);
   }
 
   dispose(roots: readonly ScanRoot[]): void {
     for (const root of roots) this.disconnect(root);
     if (this.debounceTimer !== null) clearTimeout(this.debounceTimer);
     if (this.maxWaitTimer !== null) clearTimeout(this.maxWaitTimer);
+    this.debounceTimer = null;
+    this.maxWaitTimer = null;
+    this.cancelIdle?.();
+    this.cancelIdle = null;
+    this.dirty.clear();
   }
 }
 
@@ -515,33 +623,56 @@ class MutationLifecycle {
 // Event Interceptor
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Anything that plausibly submits an SPA form: buttons of any type, submit/button inputs, ARIA buttons. */
+function isSubmitLike(n: unknown): n is HTMLElement {
+  if (!isElement(n)) return false;
+  if (n.localName === 'button') return true;
+  if (n.localName === 'input') {
+    const t = (n as HTMLInputElement).type;
+    return t === 'submit' || t === 'button' || t === 'image';
+  }
+  return n.getAttribute('role') === 'button';
+}
+
 class EventInterceptor {
-  private readonly attached = new WeakSet<ScanRoot>();
-  private readonly listeners: Array<{ root: ScanRoot; type: string; fn: EventListener }> = [];
+  private readonly listenersByRoot = new Map<ScanRoot, Array<{ type: string; fn: EventListener }>>();
+  private readonly lastEmit = new WeakMap<HTMLElement, number>();
 
   constructor(
+    private readonly config: EngineConfig,
     private readonly resolveField: (el: HTMLInputElement) => ClassifiedField | null,
     private readonly resolveForm: (el: HTMLInputElement) => ClassifiedForm | null,
+    private readonly resolveFormByNode: (node: Node) => ClassifiedForm | null,
     private readonly events: EngineEvents,
   ) {}
 
   attach(root: ScanRoot): void {
-    if (this.attached.has(root)) return;
-    this.attached.add(root);
+    if (this.listenersByRoot.has(root)) return;
+    this.listenersByRoot.set(root, []);
     this.on(root, 'focusin', (e) => this.handleFocus(e));
     this.on(root, 'input', (e) => this.handleInput(e));
+    this.on(root, 'keydown', (e) => this.handleKeydown(e));
+    this.on(root, 'click', (e) => this.handleClick(e));
     this.on(root, 'submit', (e) => this.handleSubmit(e));
+  }
+
+  /** Remove this root's listeners so nothing keeps a strong reference to a pruned root. */
+  detach(root: ScanRoot): void {
+    const list = this.listenersByRoot.get(root);
+    if (!list) return;
+    for (const { type, fn } of list) root.removeEventListener(type, fn, { capture: true });
+    this.listenersByRoot.delete(root);
   }
 
   private on(root: ScanRoot, type: string, fn: EventListener): void {
     root.addEventListener(type, fn, { capture: true, passive: true });
-    this.listeners.push({ root, type, fn });
+    this.listenersByRoot.get(root)?.push({ type, fn });
   }
 
   /** Recover the true target through shadow boundaries. */
   private target(e: Event): HTMLInputElement | null {
     const t = e.composedPath()[0] ?? e.target;
-    return t instanceof HTMLInputElement ? t : null;
+    return isInput(t) ? t : null;
   }
 
   private handleFocus(e: Event): void {
@@ -557,31 +688,65 @@ class EventInterceptor {
     const input = this.target(e);
     if (!input || input.type !== 'password') return;
     // Password typing inside an unclassified container ⇒ heuristics missed a
-    // dynamically built form; force reconciliation via the form resolver.
+    // dynamically built form; force reconciliation via the form resolver
+    // (rate-limited inside the engine — this fires per keystroke).
     this.resolveForm(input);
   }
 
-  private handleSubmit(e: Event): void {
-    const path = e.composedPath();
-    const formEl = path.find((n): n is HTMLFormElement => n instanceof HTMLFormElement);
-    if (!formEl) return;
-    const anyInput = formEl.querySelector<HTMLInputElement>('input');
-    const form = anyInput ? this.resolveForm(anyInput) : null;
-    if (!form) return;
+  /** Enter-key submits in SPAs that never dispatch a submit event. */
+  private handleKeydown(e: Event): void {
+    if ((e as KeyboardEvent).key !== 'Enter') return;
+    const input = this.target(e);
+    if (!input || !isFillable(input)) return;
+    const form = this.resolveForm(input);
+    if (form) this.emitSubmission(form, true);
+  }
 
-    // Snapshot values at submit time for save/update prompts (never persisted here).
+  /**
+   * Click-based submits (button onClick + fetch, no <form> submission) — the
+   * dominant SPA login pattern. Values are snapshotted at pointer time, before
+   * the app's own handler can clear the fields or unmount the view.
+   */
+  private handleClick(e: Event): void {
+    const submitter = e.composedPath().find(isSubmitLike);
+    if (!submitter) return;
+    const form = this.resolveFormByNode(submitter);
+    if (form && form.intent !== 'unknown') this.emitSubmission(form, true);
+  }
+
+  private handleSubmit(e: Event): void {
+    const formEl = e.composedPath().find(isFormElement);
+    const form = formEl ? this.resolveFormByNode(formEl) : null;
+    if (form) this.emitSubmission(form, false);
+  }
+
+  /**
+   * Snapshot values and emit. `requirePassword` guards the speculative paths
+   * (Enter/click) against noise; the real submit event always emits. Emissions
+   * for the same container are deduped (click and submit often both fire).
+   */
+  private emitSubmission(form: ClassifiedForm, requirePassword: boolean): void {
+    const now = Date.now();
+    if (now - (this.lastEmit.get(form.container) ?? 0) < this.config.submitDedupeMs) return;
+
     const captured: Partial<Record<FieldRole, string>> = {};
     for (const f of form.fields) {
       if (f.role !== 'unknown' && f.element.value) captured[f.role] = f.element.value;
     }
+    if (
+      requirePassword &&
+      captured['current-password'] === undefined &&
+      captured['new-password'] === undefined &&
+      captured['confirm-password'] === undefined
+    ) {
+      return;
+    }
+    this.lastEmit.set(form.container, now);
     this.events.onFormSubmitted?.(form, captured);
   }
 
   dispose(): void {
-    for (const { root, type, fn } of this.listeners) {
-      root.removeEventListener(type, fn, { capture: true });
-    }
-    this.listeners.length = 0;
+    for (const root of [...this.listenersByRoot.keys()]) this.detach(root);
   }
 }
 
@@ -595,9 +760,11 @@ export class AutofillEngine {
   private readonly heuristics: HeuristicEngine;
   private readonly lifecycle: MutationLifecycle;
   private readonly interceptor: EventInterceptor;
-  private readonly formByContainer = new WeakMap<HTMLElement, ClassifiedForm>();
+  /** Per-root input cache: clean roots are not re-walked on rescan. */
+  private readonly inputsByRoot = new Map<ScanRoot, HTMLInputElement[]>();
   private forms: ClassifiedForm[] = [];
   private started = false;
+  private lastForcedRescan = 0;
 
   constructor(
     private readonly events: EngineEvents = {},
@@ -607,8 +774,10 @@ export class AutofillEngine {
     this.heuristics = new HeuristicEngine(this.config);
     this.lifecycle = new MutationLifecycle(this.config, () => this.rescan());
     this.interceptor = new EventInterceptor(
+      this.config,
       (el) => this.heuristics.classifyField(el),
       (el) => this.formFor(el),
+      (node) => this.formForNode(node),
       this.events,
     );
   }
@@ -616,14 +785,16 @@ export class AutofillEngine {
   start(): void {
     if (this.started) return;
     this.started = true;
-    this.adoptRoot(document);
-    this.rescan();
+    this.adoptRoot(document, 0);
+    this.rescan(true);
   }
 
   stop(): void {
     this.started = false;
     this.lifecycle.dispose(this.registry.all());
     this.interceptor.dispose();
+    this.registry.clear();
+    this.inputsByRoot.clear();
     this.forms = [];
   }
 
@@ -637,10 +808,14 @@ export class AutofillEngine {
     for (const field of form.fields) {
       if (!field.visible || !field.element.isConnected) continue;
       const value = this.valueFor(field.role, credential);
-      if (value !== undefined) {
-        setNativeValue(field.element, value);
-        filled = true;
-      }
+      if (value === undefined) continue;
+      // Focus before writing: several frameworks gate change handlers on focus
+      // state, and the focus shift onto the next field produces the blur that
+      // triggers per-field validation, mirroring real user input. Focus stays
+      // on the last filled field, which is the natural post-autofill state.
+      field.element.focus({ preventScroll: true });
+      setNativeValue(field.element, value);
+      filled = true;
     }
     return filled;
   }
@@ -660,37 +835,56 @@ export class AutofillEngine {
     }
   }
 
-  private adoptRoot(root: ScanRoot): void {
+  private adoptRoot(root: ScanRoot, iframeDepth: number): void {
     if (this.registry.has(root)) return;
-    this.registry.add(root);
+    this.registry.add(root, iframeDepth);
     this.lifecycle.observe(root);
     this.interceptor.attach(root);
   }
 
-  /** Full reconciliation pass: scoped to registered roots, results diffed before emit. */
-  private rescan(): void {
+  /**
+   * Reconciliation pass. Only dirty roots (those that reported mutations) and
+   * never-scanned roots are re-walked; clean roots reuse their cached inputs.
+   * `force` rescans everything (initial scan, event-driven reconciliation).
+   */
+  private rescan(force = false): void {
     if (!this.started) return;
-    // Explicit disconnect is required: an active MutationObserver holds a strong
-    // internal reference to its observed node, which would otherwise prevent GC
-    // of detached shadow roots even though nothing in JS-land points to them anymore.
-    for (const stale of this.registry.prune()) this.lifecycle.disconnect(stale);
 
-    const allInputs: HTMLInputElement[] = [];
-    const queue: ScanRoot[] = [...this.registry.all()];
+    // Explicit teardown is required: an active MutationObserver holds a strong
+    // internal reference to its observed node, and the interceptor's listener
+    // table holds strong references to roots — either would keep a detached
+    // shadow root or discarded iframe document alive despite WeakMap usage.
+    for (const stale of this.registry.prune()) {
+      this.lifecycle.disconnect(stale);
+      this.interceptor.detach(stale);
+      this.inputsByRoot.delete(stale);
+    }
+
+    const dirty = this.lifecycle.takeDirty();
+    const queue: ScanRoot[] = this.registry.all().filter((r) => force || dirty.has(r) || !this.inputsByRoot.has(r));
+
     while (queue.length > 0) {
       const root = queue.shift() as ScanRoot;
-      const { inputs, newRoots } = this.registry.scan(root, this.config.maxIframeDepth);
-      allInputs.push(...inputs);
-      for (const nr of newRoots) {
-        this.adoptRoot(nr);
-        queue.push(nr);
+      const { inputs, newRoots } = this.registry.scan(root, this.registry.depthOf(root), this.config.maxIframeDepth);
+      this.inputsByRoot.set(root, inputs);
+      for (const discovered of newRoots) {
+        this.adoptRoot(discovered.root, discovered.iframeDepth);
+        queue.push(discovered.root);
+      }
+    }
+
+    // Merge per-root caches; cheap isConnected filter drops nodes removed from
+    // clean roots between their last scan and now.
+    const allInputs: HTMLInputElement[] = [];
+    for (const root of this.registry.all()) {
+      for (const input of this.inputsByRoot.get(root) ?? []) {
+        if (input.isConnected) allInputs.push(input);
       }
     }
 
     const nextForms = this.buildForms(allInputs);
     if (this.formsChanged(nextForms)) {
       this.forms = nextForms;
-      for (const form of nextForms) this.formByContainer.set(form.container, form);
       this.events.onFormsChanged?.(nextForms);
     }
   }
@@ -724,12 +918,24 @@ export class AutofillEngine {
   }
 
   private formFor(input: HTMLInputElement): ClassifiedForm | null {
-    for (const form of this.forms) {
-      if (form.fields.some((f) => f.element === input)) return form;
-    }
-    // Unknown input inside a known container ⇒ stale state; reconcile immediately.
-    this.rescan();
-    return this.forms.find((form) => form.fields.some((f) => f.element === input)) ?? null;
+    const find = (): ClassifiedForm | null =>
+      this.forms.find((form) => form.fields.some((f) => f.element === input)) ?? null;
+
+    const direct = find();
+    if (direct) return direct;
+
+    // Unknown input ⇒ possibly stale state. Reconcile synchronously, but
+    // rate-limited: this path is reachable from per-keystroke input events and
+    // a full forest walk forces layout.
+    const now = Date.now();
+    if (now - this.lastForcedRescan < this.config.forcedRescanCooldownMs) return null;
+    this.lastForcedRescan = now;
+    this.rescan(true);
+    return find();
+  }
+
+  private formForNode(node: Node): ClassifiedForm | null {
+    return this.forms.find((f) => f.container === node || f.container.contains(node)) ?? null;
   }
 
   private formsChanged(next: ClassifiedForm[]): boolean {
@@ -739,7 +945,9 @@ export class AutofillEngine {
       const b = this.forms[i];
       if (a.container !== b.container || a.intent !== b.intent || a.fields.length !== b.fields.length) return true;
       for (let j = 0; j < a.fields.length; j++) {
-        if (a.fields[j].element !== b.fields[j].element || a.fields[j].role !== b.fields[j].role) return true;
+        const fa = a.fields[j];
+        const fb = b.fields[j];
+        if (fa.element !== fb.element || fa.role !== fb.role || fa.visible !== fb.visible) return true;
       }
     }
     return false;
