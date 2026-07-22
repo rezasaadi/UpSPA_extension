@@ -1,4 +1,4 @@
-import { UpspaClient, type CtBlobB64 } from 'upspa-js';
+import { UpspaClient, type CtBlobB64, type RegistrationSpOut } from 'upspa-js';
 import { getConfig, setConfig, type UpspaConfig, type SpConfig } from './config';
 export type PreparedSecretUpdate = {
   uid: string;
@@ -6,6 +6,11 @@ export type PreparedSecretUpdate = {
   newForLs: string;
   cjNew: CtBlobB64;
   suids: Array<{ sp_id: number; suid: string }>;
+};
+export type PreparedRegistration = {
+  uid: string;
+  passwordForLs: string;
+  records: RegistrationSpOut[];
 };
 function requireConfig(cfg: UpspaConfig): Required<UpspaConfig> {
   if (!cfg.enabled) throw new Error('UpSPA is disabled.');
@@ -87,6 +92,27 @@ export async function registerForSite(lsj: string, password: string, uid?: strin
   const out = await client.register(lsj, password);
   return out.to_ls.vinfo;
 }
+export async function prepareRegistrationForSite(
+  lsj: string,
+  password: string,
+  uid?: string,
+): Promise<PreparedRegistration> {
+  const client = await makeUpspaClient(uid);
+  const out = await client.prepareRegistration(lsj, password);
+
+  return {
+    uid: client.uid,
+    passwordForLs: out.to_ls.vinfo,
+    records: out.per_sp,
+  };
+}
+
+export async function commitRegistrationForSite(
+  prepared: Pick<PreparedRegistration, 'uid' | 'records'>,
+): Promise<void> {
+  const client = await makeUpspaClient(prepared.uid);
+  await client.applyRegistrationToSPs(prepared.records);
+}
 export async function authenticateForSite(lsj: string, password: string, uid?: string): Promise<string> {
   const client = await makeUpspaClient(uid);
   const out = await client.authenticate(lsj, password);
@@ -108,6 +134,7 @@ export async function prepareSecretUpdateForSite(
     suids: out.suids,
   };
 }
+
 export async function commitSecretUpdateForSite(
   prepared: Pick<PreparedSecretUpdate, 'uid' | 'cjNew' | 'suids'>,
 ): Promise<void> {

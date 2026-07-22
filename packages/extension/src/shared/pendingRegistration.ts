@@ -9,6 +9,16 @@ export type PersistedPendingRegistration = {
   passwordPolicy: PasswordPolicy;
   encoderCounter: number;
   createdAt: number;
+  uid: string;
+  records: Array<{
+    sp_id: number;
+    suid: string;
+    cj: {
+      nonce: string;
+      ct: string;
+      tag: string;
+    };
+  }>;
 };
 
 function getSessionStorageArea(): chrome.storage.StorageArea {
