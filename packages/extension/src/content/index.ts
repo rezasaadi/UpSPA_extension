@@ -1,5 +1,5 @@
 import type { ContentFillRequest, ContentFillResponse, PasswordPolicyExtractionResponse } from '../shared/messages';
-import type { PasswordPolicy } from '../shared/passwordPolicy';
+import { detectPasswordPolicy, type PasswordPolicySignals } from '../shared/policyDetection';
 
 function isVisibleEditableInput(input: HTMLInputElement): boolean {
   if (input.disabled || input.readOnly) return false;
@@ -148,170 +148,58 @@ function visibleText(el: Element | null): string {
   return (el.textContent ?? '').replace(/\s+/g, ' ').trim();
 }
 
-function addEvidence(evidence: string[], text: string): void {
-  const clean = text.replace(/\s+/g, ' ').trim();
-  if (!clean) return;
-  if (!evidence.includes(clean)) evidence.push(clean.slice(0, 220));
-}
+function collectAssociatedTexts(input: HTMLInputElement): string[] {
+  const texts: string[] = [];
+  const push = (value: string | null | undefined) => {
+    const clean = (value ?? '').replace(/\s+/g, ' ').trim();
+    if (clean) texts.push(clean);
+  };
 
-function getAssociatedText(input: HTMLInputElement, evidence: string[]): string {
-  const parts: string[] = [];
   const id = input.id;
   if (id) {
-    document.querySelectorAll(`label[for="${CSS.escape(id)}"]`).forEach((label) => {
-      const text = visibleText(label);
-      if (text) {
-        parts.push(text);
-        addEvidence(evidence, `label text: ${text}`);
-      }
-    });
+    document.querySelectorAll(`label[for="${CSS.escape(id)}"]`).forEach((label) => push(visibleText(label)));
   }
+  push(visibleText(input.closest('label')));
 
-  const wrappingLabel = input.closest('label');
-  const wrappingLabelText = visibleText(wrappingLabel);
-  if (wrappingLabelText) {
-    parts.push(wrappingLabelText);
-    addEvidence(evidence, `label text: ${wrappingLabelText}`);
-  }
-
-  const describedBy = `${input.getAttribute('aria-describedby') ?? ''} ${
-    input.getAttribute('aria-errormessage') ?? ''
-  }`;
+  const describedBy = `${input.getAttribute('aria-describedby') ?? ''} ${input.getAttribute('aria-errormessage') ?? ''}`;
   describedBy
     .split(/\s+/)
     .map((item) => item.trim())
     .filter(Boolean)
-    .forEach((idRef) => {
-      const text = visibleText(document.getElementById(idRef));
-      if (text) {
-        parts.push(text);
-        addEvidence(evidence, `aria text: ${text}`);
-      }
-    });
+    .forEach((idRef) => push(visibleText(document.getElementById(idRef))));
 
-  for (const attr of ['title', 'placeholder', 'autocomplete']) {
-    const value = input.getAttribute(attr);
-    if (value) {
-      parts.push(value);
-      addEvidence(evidence, `password input ${attr}=${value}`);
-    }
-  }
+  push(input.getAttribute('title'));
+  push(input.getAttribute('placeholder'));
 
   const form = input.form ?? input.closest('form');
   const formText = visibleText(form);
   if (formText) {
-    parts.push(formText);
-    addEvidence(evidence, `form text: ${formText}`);
+    push(formText);
   } else {
-    const containerText = visibleText(input.closest('section, article, main, div'));
-    if (containerText) {
-      parts.push(containerText);
-      addEvidence(evidence, `nearby text: ${containerText}`);
-    }
+    push(visibleText(input.closest('section, article, main, div')));
   }
 
-  return parts.join(' ');
+  return texts;
 }
 
-function inferPolicyFromText(text: string, hints: Partial<PasswordPolicy>, evidence: string[]): void {
-  const lower = text.toLowerCase();
-  const minMatch =
-    lower.match(/(?:at least|minimum|min)\s+(\d{1,3})/) ??
-    lower.match(/(\d{1,3})\s+(?:characters?|chars?)\s+(?:minimum|min)/);
-  if (minMatch) {
-    hints.minLen = Number(minMatch[1]);
-    addEvidence(evidence, `detected minimum length ${minMatch[1]}`);
-  }
-
-  const maxMatch =
-    lower.match(/(?:maximum|max|up to|no more than)\s+(\d{1,3})/) ??
-    lower.match(/(\d{1,3})\s+(?:characters?|chars?)\s+(?:maximum|max)/);
-  if (maxMatch) {
-    hints.maxLen = Number(maxMatch[1]);
-    addEvidence(evidence, `detected maximum length ${maxMatch[1]}`);
-  }
-
-  if (/(uppercase|capital letter)/i.test(text)) {
-    hints.requireUpper = true;
-    addEvidence(evidence, 'detected uppercase requirement');
-  }
-  if (/lowercase/i.test(text)) {
-    hints.requireLower = true;
-    addEvidence(evidence, 'detected lowercase requirement');
-  }
-  if (/(number|digit)/i.test(text)) {
-    hints.requireDigit = true;
-    addEvidence(evidence, 'detected digit requirement');
-  }
-  if (/(special character|symbol)/i.test(text) || /[!@#$%^&*]/.test(text)) {
-    hints.requireSymbol = true;
-    hints.allowedSymbols = '!@#$%^&*';
-    addEvidence(evidence, 'detected symbol requirement');
-  }
-  if (/(no spaces|must not contain spaces|without spaces)/i.test(text)) {
-    hints.forbidWhitespace = true;
-    addEvidence(evidence, 'detected no-whitespace requirement');
-  }
-  if (/(must not contain username|cannot contain username|cannot contain email|must not contain email)/i.test(text)) {
-    hints.forbiddenSubstrings = ['username', 'email'];
-    addEvidence(evidence, 'detected no username/email requirement');
-  }
-}
-
-function inferPolicyFromPattern(pattern: string, hints: Partial<PasswordPolicy>, evidence: string[]): void {
-  addEvidence(evidence, `pattern attribute present: ${pattern}`);
-  const minMax = pattern.match(/\{(\d+),(\d*)\}/);
-  if (minMax) {
-    hints.minLen = Number(minMax[1]);
-    if (minMax[2]) hints.maxLen = Number(minMax[2]);
-  }
-  if (/A-Z/.test(pattern)) hints.requireUpper = true;
-  if (/a-z/.test(pattern)) hints.requireLower = true;
-  if (/\\d|0-9/.test(pattern)) hints.requireDigit = true;
-  if (/[!@#$%^&*]/.test(pattern)) {
-    hints.requireSymbol = true;
-    hints.allowedSymbols = '!@#$%^&*';
-  }
+function gatherPolicySignals(input: HTMLInputElement): PasswordPolicySignals {
+  return {
+    minlengthAttr: input.getAttribute('minlength'),
+    maxlengthAttr: input.getAttribute('maxlength'),
+    patternAttr: input.getAttribute('pattern'),
+    required: input.required,
+    autocomplete: input.getAttribute('autocomplete'),
+    texts: collectAssociatedTexts(input),
+  };
 }
 
 function extractPasswordPolicy(): PasswordPolicyExtractionResponse {
-  const passwordInputs = getVisiblePasswordInputs();
-  const input = passwordInputs[0];
+  const input = getVisiblePasswordInputs()[0];
   if (!input) {
     return { ok: false, error: 'No visible password field found for policy detection.' };
   }
-
-  const hints: Partial<PasswordPolicy> = {};
-  const evidence: string[] = [];
-  const minlength = input.getAttribute('minlength');
-  const maxlength = input.getAttribute('maxlength');
-  const pattern = input.getAttribute('pattern');
-
-  if (minlength) {
-    hints.minLen = Number(minlength);
-    addEvidence(evidence, `password input minlength=${minlength}`);
-  }
-  if (maxlength) {
-    hints.maxLen = Number(maxlength);
-    addEvidence(evidence, `password input maxlength=${maxlength}`);
-  }
-  if (pattern) {
-    inferPolicyFromPattern(pattern, hints, evidence);
-  }
-  if (input.required) addEvidence(evidence, 'password input required=true');
-
-  const text = getAssociatedText(input, evidence);
-  inferPolicyFromText(text, hints, evidence);
-
-  if (evidence.length === 0) {
-    addEvidence(evidence, 'No explicit password policy was found on the page; using safe defaults.');
-  }
-
-  return {
-    ok: true,
-    policyHints: hints,
-    evidence,
-  };
+  const { policyHints, evidence } = detectPasswordPolicy(gatherPolicySignals(input));
+  return { ok: true, policyHints, evidence };
 }
 
 chrome.runtime.onMessage.addListener((message: ContentFillRequest, _sender, sendResponse) => {
