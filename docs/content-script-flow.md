@@ -79,7 +79,7 @@ When another extension component requests a registration operation (`UPSPA_FILL_
 
 If a registration form contains both a password and a confirmation field, both receive the same generated password.
 
-This corresponds to the registration phase of the UpSPA protocol, where a site-specific password has already been derived by the UpSPA client and must now be submitted to the login server. The algorithm focuses on generating and protecting this credential; the content script performs the final browser-side insertion into the webpage.
+This corresponds to the registration phase of the UpSPA protocol, where a site-specific password has already been derived by the UpSPA client and must now be submitted to the login server. The UpSPA protocol focuses on generating and protecting this credential; the content script performs the final browser-side insertion into the webpage.
 
 ## Authentication Flow
 
