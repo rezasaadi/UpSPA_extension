@@ -21,6 +21,35 @@ The popup is responsible for:
 
 The popup itself does **not** implement the UpSPA protocol. Instead, it collects user input and initiates protocol execution through the extension's internal architecture.
 
+## High-Level Flow
+
+From the user's perspective, interaction with the popup follows this sequence:
+
+```text
+Open Popup
+      │
+      V
+Identify Current Website
+      │
+      V
+Select or Create Account
+      │
+      V
+Enter Master Password
+      │
+      V
+Choose an Operation
+      ├───────────── Register
+      ├───────────── Login
+      ├───────────── Secret Update
+      └───────────── Password Policy Detection
+      │
+      V
+Display Status
+```
+
+The popup acts as the starting point for user-driven operations while delegating protocol execution to the underlying UpSPA implementation.
+
 ## User Interface Layout
 
 The popup is organized into several functional sections with different layouts.
@@ -30,6 +59,12 @@ Popup
 ├── Current Website
 ├── Account Management
 ├── Master Password
+├── Password Policy
+├── Registration
+├── Authentication
+├── Secret Update
+├── Status
+└── Extension Controls
 ```
 
 Each section corresponds to a specific stage of the user's interaction with the extension.
@@ -74,3 +109,77 @@ These controls allow the extension to support multiple accounts for the same web
 The master password is required before performing protocol operations such as registration or authentication.
 
 The popup provides a dedicated password field for entering the user's master password when the user do the aforementioned interactions.
+
+### Password Policy
+
+The popup includes a password policy editor.
+
+Users may:
+
+* detect a website's password policy,
+* manually inspect the detected policy,
+* modify policy constraints if necessary.
+
+The editable policy includes:
+
+* minimum password length,
+* maximum password length,
+* uppercase requirement,
+* lowercase requirement,
+* digit requirement,
+* symbol requirement,
+* whitespace restrictions,
+* allowed symbols,
+* forbidden substrings.
+
+The interface also provides an evidence field that records information used when detecting the website's password policy.
+
+## Registration Flow
+
+The popup allows users to register the current website with UpSPA.
+
+The registration workflow consists of two stages:
+
+1. Register Current Site
+2. Confirm Registration Success
+
+The confirmation button is initially disabled and becomes available only after the registration process reaches the appropriate stage. This separation allows the extension to coordinate its local protocol state with the outcome of the website's registration process.
+
+## Authentication Flow
+
+Authentication is initiated by the **Login current site** button.
+
+When selected, the popup provides the account identifier for the confirmation and waits for the master password input from the user. Once the master password is entered, the extension begins the UpSPA authentication workflow for the currently active website using the selected account identifier and the supplied master password.
+
+## Secret Update Flow
+
+The popup supports updating an existing secret without requiring a new registration.
+
+This workflow consists of three separate actions:
+
+1. Prepare secret update
+2. Commit secret update after website success
+3. Cancel secret update
+
+The commit and cancel operations are initially disabled and become available only after a secret update has been prepared. This staged design helps ensure that local protocol state remains synchronized with the outcome of the corresponding website operation.
+
+## Status Display
+
+A dedicated status panel provides feedback regarding the outcome of extension operations.
+
+Examples include:
+
+* successful registration,
+* authentication status,
+* validation errors,
+* protocol failures,
+* operation progress.
+
+The status area provides immediate feedback without requiring users to inspect browser developer tools.
+
+## Extension Controls
+
+The popup also provides other utility actions:
+
+* **Lock extension** — clears or locks the current session, requiring the user to re-enter their master password before performing protected operations.
+* **Open Options** — opens the extension's options page, where users can configure global extension settings.
