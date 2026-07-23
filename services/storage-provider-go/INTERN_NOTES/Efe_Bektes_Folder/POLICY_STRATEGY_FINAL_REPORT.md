@@ -20,6 +20,8 @@
 
 Scaling 40 → 200 sites therefore means: registry rows, a handful of policy constants, and wider use of the existing passwordless flag. No schema change, no new policy machinery.
 
+**Which codebase.** These mechanisms are split across two repositories: the site registry and its own policy/encoder implementation are in `UpSPA_Extension_User_Study_Version`; the Task 3 detector and Task 6 encoder are in `UpSPA_extension` on `intern/extension`. The registry expansion described here targets the study repo, since that is where `supportedSites.ts` lives. Section 6.1 documents where the two implementations have diverged and what that means if they are ever unified.
+
 ## 2. Manual registry vs. automatic detection: division of labor
 
 We do not choose between them; both exist and get distinct roles.
@@ -64,7 +66,29 @@ Existing overrides (`googlePolicy`, `applePolicy`, `githubPolicy`, `drPolicy`, `
 
 An earlier standalone validation/generation scaffold was **withdrawn**: it duplicated `passwordSatisfiesPolicy`/`encodeSecretAsPassword`, and a random generator would violate the determinism contract `Password_i = Encode(vInfo, Counter, Policy)`.
 
-**The lint has already earned its place.** Run against the current registry and `passwordPolicy.ts` (246 cases), it caught one real defect: `githubPolicy` sets all four `require*` flags to `false`, but the encoder builds its character pool only from required classes, so the pool is empty and `encodeSecretAsPassword` throws "Password policy is impossible: no allowed character set." **The GitHub entry cannot generate a password at all in the current build.** Recommended data-only fix, verified against the suite (246/246 after): set `requireLower: true, requireDigit: true` in `githubPolicy`. GitHub accepts any 15+ character password, so over-requiring is safe (the same conservative direction the Task 3 detector deliberately takes). Note: because the policy is bound into the encoder seed, any existing GitHub demo account must be re-registered after the change; this is acceptable pre-release, as with the v1→v2 seed-tag bump.
+### 6.1 What the lint surfaced: the two codebases have diverged
+
+Running the lint required pairing the registry with an encoder, and that exposed a structural issue worth reporting.
+
+The registry (`supportedSites.ts`, 40 sites, `relaxed20Policy`, `githubPolicy` and the other overrides) lives in **`UpSPA_Extension_User_Study_Version`**. The Task 6 encoder documented in Report II lives in **`UpSPA_extension`** on `intern/extension`. They are not the same file, and they have drifted:
+
+| | Study repo `passwordPolicy.ts` | Main repo `passwordPolicy.ts` (Task 6) |
+|---|---|---|
+| Seed tag | `upspa-password-encoding-v1` | `upspa-password-encoding-v2` |
+| Character pool | `allowedPool()`: always includes lower + upper + digit + allowed specials | built from **required classes only** |
+| Policy type | `maxLength`, `requireLowercase`, `allowedSpecials`, `disallowedChars`, `pattern`, `source` | `maxLen`, `requireUpper`, `allowedSymbols`, no `source` |
+| Size | 546 lines, legacy-alias support | 233 lines |
+
+**Consequence.** In the study repo as it stands, `githubPolicy` works: all four `require*` flags are `false`, but `allowedPool()` supplies letters and digits regardless, so generation succeeds. There is **no defect in the current build of either repo**.
+
+However, the moment the registry is placed on the Task 6 encoder, which is what a unified 200-site build implies, every policy with all `require*` flags false produces an empty pool and `encodeSecretAsPassword` throws "Password policy is impossible: no allowed character set." `githubPolicy` is the one such entry among the current 40, so the failure would be silent until someone tests GitHub specifically.
+
+**Recommendation, in order of preference:**
+
+1. **Align the encoders before merging registries.** The study repo's `allowedPool()` behaviour is the safer of the two: a password may contain characters from classes it is not required to contain. Porting that one function into the Task 6 encoder removes the hazard for the whole registry, not just GitHub.
+2. **If the encoders stay separate,** add `requireLower: true, requireDigit: true` to `githubPolicy` at the time of any port. GitHub accepts any password of 15 or more characters, so over-requiring is safe and matches the conservative direction the Task 3 detector already takes. Note that the policy is bound into the encoder seed, so this changes the derived GitHub password and any existing demo account for that site needs re-registration.
+
+Either way the lint stays useful: it is what makes an assumption like this visible before a participant session rather than during one.
 
 ## 7. Remaining work (≈ 3 days, data entry)
 
